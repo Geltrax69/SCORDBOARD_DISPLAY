@@ -38,9 +38,9 @@ func (h *EventHandler) Create(c *gin.Context) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "device not authorized for this match"})
 			return
 		}
-		// Device tokens store UserID as "device:<matchID>" which is not a valid UUID.
-		// Use the matchID itself as the creator so the DB receives a real UUID.
-		userID = matchID
+		// Device tokens store UserID as "device:<matchID>" — not a valid users FK.
+		// Use empty string so the repo inserts NULL for created_by (column is nullable).
+		userID = ""
 	} else if role == string(models.RoleScorer) {
 		// Regular scorer: must be assigned to the court
 		courtID, err := h.matchRepo.GetCourtID(matchID)
