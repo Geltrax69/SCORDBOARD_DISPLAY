@@ -1,0 +1,39 @@
+version: '3.9'
+
+# Development override — run with:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  backend:
+    build:
+      context: ./backend
+      target: builder
+    command: go run ./cmd/server
+    environment:
+      ENVIRONMENT: development
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8080:8080"
+
+  frontend:
+    build: ~
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm ci --legacy-peer-deps && npm run dev -- --host 0.0.0.0"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      VITE_API_URL: http://localhost:8080/api
+      VITE_WS_URL:  ws://localhost:8080
+    ports:
+      - "3000:3000"
+
+  nginx:
+    profiles:
+      - nginx  # opt-in only in dev

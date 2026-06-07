@@ -1,0 +1,271 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────────────────────
+#  Scoreboard Pro — one-shot launcher
+#  Usage:  ./run            (starts everything)
+#          ./run --stop     (kills everything)
+#          ./run --prod     (production mode via docker compose)
+# ──────────────────────────────────────────────────────────────────────────────
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BACKEND="$ROOT/backend"
+FRONTEND="$ROOT/frontend"
+
+# ── Colors ────────────────────────────────────────────────────────────────────
+BOLD=$'\033[1m'; RESET=$'\033[0m'
+RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[0;33m'
+CYAN=$'\033[0;36m'; MAGENTA=$'\033[0;35m'; BLUE=$'\033[0;34m'
+
+log()  { echo "${BOLD}${CYAN}[run]${RESET} $*"; }
+ok()   { echo "${BOLD}${GREEN}[ ok]${RESET} $*"; }
+warn() { echo "${BOLD}${YELLOW}[warn]${RESET} $*"; }
+err()  { echo "${BOLD}${RED}[err]${RESET} $*" >&2; }
+step() { echo ""; echo "${BOLD}${BLUE}── $* ──────────────────────────────────────────${RESET}"; }
+
+# ── PIDs ──────────────────────────────────────────────────────────────────────
+BACKEND_PID=""; FRONTEND_PID=""
+
+cleanup() {
+  echo ""
+  log "Shutting down…"
+  [[ -n "$BACKEND_PID" ]]  && kill -0 "$BACKEND_PID"  2>/dev/null && kill "$BACKEND_PID"  2>/dev/null && ok "Backend stopped"
+  [[ -n "$FRONTEND_PID" ]] && kill -0 "$FRONTEND_PID" 2>/dev/null && kill "$FRONTEND_PID" 2>/dev/null && ok "Frontend stopped"
+  log "All processes stopped. Bye! 👋"
+  exit 0
+}
+trap cleanup SIGINT SIGTERM
+
+# ── Detect OS ─────────────────────────────────────────────────────────────────
+OS="unknown"
+case "$(uname -s)" in
+  Darwin) OS="mac"   ;;
+  Linux)  OS="linux" ;;
+  *) err "Unsupported OS: $(uname -s)"; exit 1 ;;
+esac
+
+# ── Install helper ────────────────────────────────────────────────────────────
+install_pkg() {
+  local name="$1" brew_pkg="${2:-$1}" apt_pkg="${3:-$1}"
+  warn "$name not found — installing…"
+  if [[ "$OS" == "mac" ]]; then
+    if command -v brew &>/dev/null; then
+      brew install "$brew_pkg" --quiet
+    else
+      err "Homebrew not found. Install it first: https://brew.sh"
+      err "Then run: brew install $brew_pkg"
+      exit 1
+    fi
+  elif [[ "$OS" == "linux" ]]; then
+    if command -v apt-get &>/dev/null; then
+      sudo apt-get update -qq && sudo apt-get install -y -qq "$apt_pkg"
+    elif command -v yum &>/dev/null; then
+      sudo yum install -y -q "$apt_pkg"
+    else
+      err "Cannot auto-install $name. Please install it manually."
+      exit 1
+    fi
+  fi
+}
+
+# ── --stop flag ───────────────────────────────────────────────────────────────
+if [[ "${1:-}" == "--stop" ]]; then
+  log "Stopping all scoreboard processes…"
+  pkill -f "go run ./cmd/server" 2>/dev/null && ok "Backend killed"  || warn "Backend wasn't running"
+  pkill -f "vite"                2>/dev/null && ok "Frontend killed" || warn "Frontend wasn't running"
+  docker compose -f "$ROOT/docker-compose.yml" stop postgres 2>/dev/null && ok "Postgres stopped" || warn "Postgres wasn't running"
+  exit 0
+fi
+
+# ── --prod flag: full docker compose stack ────────────────────────────────────
+if [[ "${1:-}" == "--prod" ]]; then
+  step "Production Mode (docker compose)"
+  log "Building and starting all services…"
+  cd "$ROOT"
+  docker compose up --build -d
+  echo ""
+  echo "${BOLD}${GREEN}╔══════════════════════════════════════════╗${RESET}"
+  echo "${BOLD}${GREEN}║    ✅  Production stack is running!      ║${RESET}"
+  echo "${BOLD}${GREEN}╠══════════════════════════════════════════╣${RESET}"
+  echo "${BOLD}${GREEN}║  App  →  http://localhost                ║${RESET}"
+  echo "${BOLD}${GREEN}║  Admin login: admin@scoreboard.local     ║${RESET}"
+  echo "${BOLD}${GREEN}║  Password:    Admin@1234                 ║${RESET}"
+  echo "${BOLD}${GREEN}╠══════════════════════════════════════════╣${RESET}"
+  echo "${BOLD}${GREEN}║  Stop with:  docker compose down         ║${RESET}"
+  echo "${BOLD}${GREEN}╚══════════════════════════════════════════╝${RESET}"
+  exit 0
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+echo ""
+echo "${BOLD}${BLUE}╔══════════════════════════════════════╗${RESET}"
+echo "${BOLD}${BLUE}║     🏆  Scoreboard Pro — Dev Run     ║${RESET}"
+echo "${BOLD}${BLUE}╚══════════════════════════════════════╝${RESET}"
+echo ""
+
+# ── 1. Check / install Docker ─────────────────────────────────────────────────
+step "Checking prerequisites"
+if ! command -v docker &>/dev/null; then
+  if [[ "$OS" == "mac" ]]; then
+    err "Docker Desktop is not installed."
+    err "Download it from: https://www.docker.com/products/docker-desktop/"
+    exit 1
+  else
+    install_pkg "Docker" "docker" "docker.io"
+    sudo systemctl start docker 2>/dev/null || true
+  fi
+fi
+ok "Docker found: $(docker --version | head -1)"
+
+if ! docker info &>/dev/null; then
+  if [[ "$OS" == "mac" ]]; then
+    warn "Docker Desktop is not running — attempting to start it…"
+    open -a Docker 2>/dev/null || true
+    log "Waiting for Docker to start (up to 60s)…"
+    RETRIES=60
+    until docker info &>/dev/null; do
+      RETRIES=$((RETRIES - 1))
+      [[ $RETRIES -le 0 ]] && { err "Docker didn't start. Open Docker Desktop manually."; exit 1; }
+      sleep 1
+    done
+  else
+    sudo systemctl start docker 2>/dev/null || { err "Cannot start Docker. Try: sudo systemctl start docker"; exit 1; }
+  fi
+fi
+ok "Docker is running"
+
+# ── 2. Check / install Go ─────────────────────────────────────────────────────
+if ! command -v go &>/dev/null; then
+  if [[ "$OS" == "mac" ]]; then
+    install_pkg "Go" "go"
+  else
+    warn "Go not found — downloading Go 1.22…"
+    curl -fsSL https://go.dev/dl/go1.22.4.linux-amd64.tar.gz -o /tmp/go.tar.gz
+    sudo rm -rf /usr/local/go
+    sudo tar -C /usr/local -xzf /tmp/go.tar.gz
+    export PATH="$PATH:/usr/local/go/bin"
+    echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
+  fi
+fi
+# Make sure go is in PATH (handles brew-installed go on first run)
+export PATH="$PATH:$(brew --prefix go 2>/dev/null)/bin:/usr/local/go/bin" 2>/dev/null || true
+ok "Go found: $(go version)"
+
+# ── 3. Check / install Node.js ────────────────────────────────────────────────
+if ! command -v node &>/dev/null; then
+  if [[ "$OS" == "mac" ]]; then
+    install_pkg "Node.js" "node"
+  else
+    warn "Node.js not found — installing via NodeSource…"
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - &>/dev/null
+    sudo apt-get install -y -qq nodejs
+  fi
+fi
+ok "Node.js found: $(node --version)"
+
+# ── 4. Copy .env if missing ───────────────────────────────────────────────────
+if [[ ! -f "$BACKEND/.env" ]]; then
+  warn "backend/.env not found — copying from .env.example"
+  cp "$ROOT/.env.example" "$BACKEND/.env"
+  ok "Created backend/.env (edit it to change secrets)"
+fi
+
+# ── 5. Start / ensure Postgres ────────────────────────────────────────────────
+step "Starting Postgres (Docker)"
+cd "$ROOT"
+docker compose up postgres -d --quiet-pull 2>&1 | grep -v "^$" || true
+
+log "Waiting for Postgres to be healthy…"
+RETRIES=30
+until docker compose exec -T postgres pg_isready -U scoreboard -d scoreboard -q 2>/dev/null; do
+  RETRIES=$((RETRIES - 1))
+  if [[ $RETRIES -le 0 ]]; then
+    err "Postgres didn't become ready. Check: docker compose logs postgres"
+    exit 1
+  fi
+  sleep 1
+done
+ok "Postgres is ready"
+
+# ── 6. Kill any stale process on :8080 ───────────────────────────────────────
+STALE=$(lsof -ti :8080 2>/dev/null || true)
+if [[ -n "$STALE" ]]; then
+  warn "Port 8080 in use (PID $STALE) — killing it…"
+  echo "$STALE" | xargs kill -9 2>/dev/null || true
+  sleep 0.5
+fi
+
+# ── 7. Backend ────────────────────────────────────────────────────────────────
+step "Starting Backend (Go)"
+cd "$BACKEND"
+
+# Download Go deps if needed
+if [[ ! -d vendor ]] && ! go list ./... &>/dev/null 2>&1; then
+  warn "Downloading Go dependencies…"
+  go mod download
+fi
+
+(
+  go run ./cmd/server 2>&1 | while IFS= read -r line; do
+    echo "${BOLD}${MAGENTA}[backend]${RESET} $line"
+  done
+) &
+BACKEND_PID=$!
+
+log "Waiting for Backend on :8080…"
+RETRIES=20
+until curl -sf http://localhost:8080/health &>/dev/null; do
+  RETRIES=$((RETRIES - 1))
+  if [[ $RETRIES -le 0 ]]; then
+    err "Backend didn't start in time. Check output above."
+    cleanup; exit 1
+  fi
+  sleep 0.5
+done
+ok "Backend ready → http://localhost:8080"
+
+# ── 8. Frontend ───────────────────────────────────────────────────────────────
+step "Starting Frontend (Vite / React)"
+cd "$FRONTEND"
+
+if [[ ! -d node_modules ]]; then
+  warn "node_modules not found — running npm install…"
+  npm install --legacy-peer-deps --silent
+  ok "npm install complete"
+fi
+
+(
+  npm run dev -- --host 0.0.0.0 2>&1 | while IFS= read -r line; do
+    echo "${BOLD}${YELLOW}[frontend]${RESET} $line"
+  done
+) &
+FRONTEND_PID=$!
+
+log "Waiting for Frontend on :3000…"
+RETRIES=30
+until curl -sf http://localhost:3000 &>/dev/null; do
+  RETRIES=$((RETRIES - 1))
+  if [[ $RETRIES -le 0 ]]; then
+    err "Frontend didn't start in time."
+    cleanup; exit 1
+  fi
+  sleep 0.5
+done
+
+# ── 9. Ready banner ───────────────────────────────────────────────────────────
+echo ""
+echo "${BOLD}${GREEN}╔════════════════════════════════════════════════════╗${RESET}"
+echo "${BOLD}${GREEN}║          ✅  Everything is running!                ║${RESET}"
+echo "${BOLD}${GREEN}╠════════════════════════════════════════════════════╣${RESET}"
+echo "${BOLD}${GREEN}║  🖥  Admin Dashboard  → http://localhost:3000      ║${RESET}"
+echo "${BOLD}${GREEN}║  📺  Display Screen   → http://localhost:3000/display ║${RESET}"
+echo "${BOLD}${GREEN}║  📱  Scorer Connect   → http://localhost:3000/connect ║${RESET}"
+echo "${BOLD}${GREEN}║  ⚙️   Backend API      → http://localhost:8080/api  ║${RESET}"
+echo "${BOLD}${GREEN}╠════════════════════════════════════════════════════╣${RESET}"
+echo "${BOLD}${GREEN}║  Default login:  admin@scoreboard.local            ║${RESET}"
+echo "${BOLD}${GREEN}║  Password:       Admin@1234                        ║${RESET}"
+echo "${BOLD}${GREEN}╠════════════════════════════════════════════════════╣${RESET}"
+echo "${BOLD}${GREEN}║  Press  Ctrl+C  to stop everything                 ║${RESET}"
+echo "${BOLD}${GREEN}╚════════════════════════════════════════════════════╝${RESET}"
+echo ""
+
+wait $BACKEND_PID $FRONTEND_PID

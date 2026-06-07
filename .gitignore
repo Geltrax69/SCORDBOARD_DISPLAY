@@ -1,0 +1,51 @@
+# ── Environment / Secrets ─────────────────────────────────────────────────────
+.env
+backend/.env
+!.env.example
+
+# ── Frontend ──────────────────────────────────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local
+frontend/.env.*.local
+
+# ── Go ────────────────────────────────────────────────────────────────────────
+backend/tmp/
+backend/scoreboard
+backend/scoreboard-*
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# ── Uploaded media (user-generated, not source code) ─────────────────────────
+backend/uploads/logos/*
+backend/uploads/players/*
+!backend/uploads/logos/.gitkeep
+!backend/uploads/players/.gitkeep
+
+# ── Inspiration images (large binary files, not needed to run) ────────────────
+inspire/
+
+# ── Docker ────────────────────────────────────────────────────────────────────
+.docker/
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*.suo
+*.user
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
