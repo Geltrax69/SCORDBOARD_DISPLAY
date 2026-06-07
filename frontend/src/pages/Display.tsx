@@ -26,6 +26,7 @@ interface LiveMatch { match: Match; state: MatchState }
 
 type OverlayState =
   | { type: 'none' }
+  | { type: 'countdown'; match: Match; players: Player[]; pendingState: MatchState }
   | { type: 'lineup'; match: Match; players: Player[] }
   | { type: 'timeout'; payload: TimeoutPayload; match: Match }
   | { type: 'substitution'; payload: SubstitutionPayload; match: Match }
@@ -125,10 +126,9 @@ export default function Display() {
       case 'match_start': {
         if (match_id && payload.match && payload.state) {
           const m = payload.match!
-          setLiveMatches((prev) => ({ ...prev, [m.id]: { match: m, state: payload.state! } }))
-          // Show player lineup
           const pl = players[m.id] ?? []
-          setOverlay({ type: 'lineup', match: m, players: pl })
+          // Show 5-second countdown BEFORE switching to live view
+          setOverlay({ type: 'countdown', match: m, players: pl, pendingState: payload.state! })
         }
         break
       }
@@ -224,6 +224,18 @@ export default function Display() {
       </div>
 
       {/* Overlays (appear on top of everything) */}
+      {overlay.type === 'countdown' && (
+        <CountdownOverlay
+          match={overlay.match}
+          onDone={() => {
+            const m = overlay.match
+            const st = overlay.pendingState
+            const pl = overlay.players
+            setLiveMatches((prev) => ({ ...prev, [m.id]: { match: m, state: st } }))
+            setOverlay({ type: 'lineup', match: m, players: pl })
+          }}
+        />
+      )}
       {overlay.type === 'lineup' && (
         <PlayerLineup
           match={overlay.match}
@@ -265,6 +277,114 @@ function EmptyDisplay({ label }: { label: string }) {
   return (
     <div className="flex-1 flex items-center justify-center">
       <p className="text-dark-800 text-2xl font-black uppercase tracking-widest">{label}</p>
+    </div>
+  )
+}
+
+// ── 5-second countdown overlay ───────────────────────────────────────────────
+function CountdownOverlay({ match: m, onDone }: { match: Match; onDone: () => void }) {
+  const ref        = useRef<HTMLDivElement>(null)
+  const numRef     = useRef<HTMLDivElement>(null)
+  const labelRef   = useRef<HTMLDivElement>(null)
+  const onDoneRef  = useRef(onDone)
+  onDoneRef.current = onDone
+
+  useEffect(() => {
+    const el  = ref.current
+    const num = numRef.current
+    const lbl = labelRef.current
+    if (!el || !num || !lbl) return
+
+    const ctx = gsap.context(() => {
+      // Fade in the whole overlay
+      gsap.fromTo(el, { opacity: 0 }, { opacity: 1, duration: 0.4, ease: 'power2.out' })
+
+      // Animate each digit 5 → 4 → 3 → 2 → 1 → GO!
+      const digits = [5, 4, 3, 2, 1]
+      const tl = gsap.timeline({ onComplete: () => {
+        // Fade out then call onDone
+        gsap.to(el, { opacity: 0, duration: 0.5, ease: 'power2.in', onComplete: () => onDoneRef.current() })
+      }})
+
+      digits.forEach((d, i) => {
+        tl.call(() => { if (num) num.textContent = String(d) }, [], i)
+        tl.fromTo(num,
+          { scale: 1.6, opacity: 0 },
+          { scale: 1,   opacity: 1, duration: 0.25, ease: 'back.out(2)' },
+          i
+        )
+        tl.to(num,
+          { scale: 0.7, opacity: 0, duration: 0.35, ease: 'power2.in' },
+          i + 0.6
+        )
+      })
+
+      // "GO!" at the end
+      tl.call(() => { if (num) num.textContent = 'GO!'; if (lbl) lbl.textContent = 'MATCH STARTED' }, [], 5)
+      tl.fromTo(num,
+        { scale: 0, opacity: 0 },
+        { scale: 1.1, opacity: 1, duration: 0.4, ease: 'back.out(3)' },
+        5
+      )
+      tl.to(num, { scale: 1.3, duration: 0.3, ease: 'power1.in' }, 5.4)
+
+      // Ripple ring pulse on each digit
+      tl.fromTo('.cd-ring',
+        { scale: 0.6, opacity: 0.6 },
+        { scale: 2.5, opacity: 0, duration: 0.9, ease: 'power2.out', repeat: 4, repeatDelay: 0.1 },
+        0
+      )
+
+    }, el)
+    return () => ctx.revert()
+  }, [])
+
+  return (
+    <div ref={ref} className="fixed inset-0 z-50 flex flex-col items-center justify-center overflow-hidden"
+      style={{ background: '#03070d' }}>
+
+      {/* Team color blobs */}
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute inset-y-0 left-0 w-1/2"
+          style={{ background: `radial-gradient(ellipse at 20% 50%, ${m.team_a_color}30 0%, transparent 70%)` }} />
+        <div className="absolute inset-y-0 right-0 w-1/2"
+          style={{ background: `radial-gradient(ellipse at 80% 50%, ${m.team_b_color}30 0%, transparent 70%)` }} />
+      </div>
+
+      {/* Match name */}
+      <p className="text-white/25 text-sm uppercase tracking-[0.5em] font-bold mb-8 relative z-10">
+        <span style={{ color: m.team_a_color }}>{m.team_a}</span>
+        <span className="mx-3 text-white/20">vs</span>
+        <span style={{ color: m.team_b_color }}>{m.team_b}</span>
+      </p>
+
+      {/* Ripple ring */}
+      <div className="relative flex items-center justify-center z-10">
+        <div className="cd-ring absolute w-48 h-48 rounded-full border-4 pointer-events-none"
+          style={{ borderColor: `${m.team_a_color}60` }} />
+
+        {/* Circle */}
+        <div className="w-52 h-52 rounded-full flex items-center justify-center"
+          style={{
+            background: `radial-gradient(circle at center, ${m.team_a_color}20 0%, transparent 70%)`,
+            border: `3px solid ${m.team_a_color}40`,
+            boxShadow: `0 0 80px ${m.team_a_color}30, 0 0 0 1px ${m.team_a_color}20`,
+          }}>
+          <div ref={numRef} className="font-black leading-none select-none"
+            style={{ fontSize: '6rem', color: '#fff', textShadow: `0 0 40px ${m.team_a_color}` }}>
+            5
+          </div>
+        </div>
+      </div>
+
+      {/* Label */}
+      <div ref={labelRef} className="mt-8 text-white/40 text-sm font-black uppercase tracking-[0.5em] relative z-10">
+        MATCH STARTING
+      </div>
+
+      {/* Bottom bar */}
+      <div className="absolute bottom-0 left-0 right-0 h-1"
+        style={{ background: `linear-gradient(to right, ${m.team_a_color}, ${m.team_b_color})` }} />
     </div>
   )
 }
