@@ -2,7 +2,7 @@
 
 A real-time sports scoreboard system with a broadcast-style display screen, admin dashboard, and mobile scorer panel.
 
-![Tech Stack](https://img.shields.io/badge/Go-00ADD8?style=flat&logo=go&logoColor=white)
+![Go](https://img.shields.io/badge/Go-00ADD8?style=flat&logo=go&logoColor=white)
 ![React](https://img.shields.io/badge/React-20232A?style=flat&logo=react&logoColor=61DAFB)
 ![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat&logo=typescript&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?style=flat&logo=postgresql&logoColor=white)
@@ -12,35 +12,63 @@ A real-time sports scoreboard system with a broadcast-style display screen, admi
 
 ## ✨ Features
 
-- **Live Scoreboard Display** — full-screen TV/projector view with real-time score updates
-- **Pre-match Intro** — broadcast-style GSAP animated intro with team logos, player spotlight carousel
-- **Mobile Scorer Panel** — connect your phone via QR code or 4-digit code, control the match
-- **Admin Dashboard** — create matches, manage teams & players (with logos and photos), control display layout
-- **WebSocket** — all score changes reflect instantly across all screens
-- **Multi-match** — support for 1–4 simultaneous matches on screen
-- **Timeout & Substitution** — overlays for timeouts, substitutions, announcements
+- **Live Scoreboard Display** — full-screen TV/projector view with real-time score updates via WebSocket
+- **Broadcast-style Intro** — GSAP animated pre-match intro with team logos, player spotlight carousel, and 5-second countdown
+- **Mobile Scorer Panel** — connect phone via QR code or 4-digit code, control scores/timer/timeouts
+- **Admin Dashboard** — create matches, manage teams & players with logos and photos
+- **Multi-match support** — 1–4 matches on screen simultaneously
 
 ---
 
 ## 🚀 Quick Start
 
-### Prerequisites
-- **Docker Desktop** — [download here](https://www.docker.com/products/docker-desktop/)
-- **Go 1.21+** — [download here](https://go.dev/dl/) *(auto-installed on macOS with Homebrew)*
-- **Node.js 18+** — [download here](https://nodejs.org/) *(auto-installed on macOS with Homebrew)*
+> **Only requirement: [Docker Desktop](https://www.docker.com/products/docker-desktop/)**
+> Everything else (Go, Node.js) is installed automatically.
 
-### Run
+---
+
+### 🪟 Windows
+
+**Option A — Double-click (easiest):**
+```
+Double-click  run.bat
+```
+
+**Option B — PowerShell:**
+```powershell
+git clone https://github.com/Geltrax69/SCORDBOARD_DISPLAY.git
+cd SCORDBOARD_DISPLAY
+.\run.ps1
+```
+> If blocked by execution policy, run once: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
+
+---
+
+### 🍎 macOS
 
 ```bash
-git clone https://github.com/Geltrax69/scoreboard-pro.git
-cd scoreboard-pro
+git clone https://github.com/Geltrax69/SCORDBOARD_DISPLAY.git
+cd SCORDBOARD_DISPLAY
 chmod +x run
 ./run
 ```
+> Requires [Homebrew](https://brew.sh) for auto-installing Go & Node.js. Or install them manually first.
 
-The script will **automatically install** missing dependencies (Go, Node.js) on macOS via Homebrew, and on Linux via apt. It will also start Docker if it's not running.
+---
 
-When everything is ready you'll see:
+### 🐧 Linux (Ubuntu / Debian / Kali / Arch)
+
+```bash
+git clone https://github.com/Geltrax69/SCORDBOARD_DISPLAY.git
+cd SCORDBOARD_DISPLAY
+chmod +x run
+sudo ./run
+```
+> Go and Node.js are installed automatically via `apt` if missing.
+
+---
+
+### ✅ What you'll see when it's ready
 
 ```
 ╔════════════════════════════════════════════════════╗
@@ -56,7 +84,55 @@ When everything is ready you'll see:
 ╚════════════════════════════════════════════════════╝
 ```
 
-Press **Ctrl+C** to stop everything.
+Press **Ctrl+C** (or Enter on Windows) to stop everything.
+
+---
+
+## 📱 How to Use
+
+### 1. Create a Match
+- Open **Admin Dashboard** → `http://localhost:3000`
+- Log in with `admin@scoreboard.local` / `Admin@1234`
+- Click **New Match** → fill team names, colors, logos, and roster
+
+### 2. Connect Scorer Phone
+- Click the **QR** icon on a match card
+- Scan QR with phone, or open `http://<your-ip>:3000/connect` and type the 4-digit code
+- Score panel appears with +1/+2/+3, timer, timeout buttons
+
+### 3. Display on TV / Projector
+- Open `http://localhost:3000/display` in a browser on the TV
+- **Pending match** → animated broadcast intro plays (logos, player spotlight carousel)
+- Press **Start Match** on phone → 5-second countdown → live scoreboard
+
+---
+
+## 🛑 Stop / Restart
+
+| OS | Command |
+|---|---|
+| macOS / Linux | `Ctrl+C` in the terminal, or `./run --stop` |
+| Windows | Press Enter in the launcher window, or close PowerShell windows |
+
+---
+
+## 🐳 Production Mode (VPS / Server)
+
+Builds Docker images and runs the full stack behind Nginx on port 80:
+
+```bash
+# macOS / Linux
+./run --prod
+
+# Windows
+.\run.ps1 --prod
+```
+
+Stop with:
+```bash
+docker compose down       # Linux/macOS
+docker-compose down       # older Docker
+```
 
 ---
 
@@ -64,89 +140,40 @@ Press **Ctrl+C** to stop everything.
 
 ```
 scoreboard-pro/
-├── backend/          # Go (Gin) REST API + WebSocket server
-│   ├── cmd/server/   # Entry point
+├── backend/              # Go (Gin) REST API + WebSocket
+│   ├── cmd/server/       # Entry point
 │   ├── internal/
-│   │   ├── handlers/ # HTTP handlers
-│   │   ├── models/   # Data models
-│   │   ├── repository/ # DB queries
-│   │   ├── ws/       # WebSocket hub
-│   │   ├── auth/     # JWT auth
-│   │   └── db/       # Migrations
-│   └── uploads/      # User-uploaded logos & player photos
+│   │   ├── handlers/     # HTTP handlers
+│   │   ├── models/       # Data models
+│   │   ├── repository/   # DB queries
+│   │   ├── ws/           # WebSocket hub
+│   │   ├── auth/         # JWT (admin + device tokens)
+│   │   └── db/migrations # Auto-applied SQL migrations
+│   └── uploads/          # Logos & player photos
 │
-├── frontend/         # React + TypeScript (Vite)
+├── frontend/             # React + TypeScript (Vite)
 │   └── src/
-│       ├── pages/    # Display, Dashboard, Connect, Login
+│       ├── pages/        # Display, Dashboard, Connect, Login
 │       ├── components/
-│       ├── store/    # Zustand state
-│       └── services/ # API + WebSocket
+│       ├── store/        # Zustand state
+│       └── services/     # API + WebSocket
 │
-├── nginx/            # Reverse proxy config (production)
-├── docker-compose.yml       # Production stack
-├── docker-compose.dev.yml   # Dev Postgres only
-└── run               # One-shot launcher script
+├── nginx/                # Reverse proxy (production)
+├── docker-compose.yml    # Production stack
+├── run                   # Launcher — macOS / Linux / Git Bash
+├── run.ps1               # Launcher — Windows (PowerShell)
+└── run.bat               # Launcher — Windows (double-click)
 ```
-
----
-
-## 📱 How to Use
-
-### 1. Create a Match
-- Go to **Admin Dashboard** → `http://localhost:3000`
-- Click **New Match**, fill in team names, colors, logos, and players
-- Click **Create**
-
-### 2. Connect the Scorer Phone
-- On the dashboard, click the **QR** icon on a match
-- Scan the QR code with your phone, OR open `http://<your-ip>:3000/connect` and enter the 4-digit code
-- You'll get a scorer panel with score buttons, timer, timeout controls
-
-### 3. Show the Display
-- Open `http://localhost:3000/display` on a TV/projector browser
-- When a match is **pending** → broadcast-style animated pre-match intro plays
-- When you press **Start Match** on the phone → instantly transitions to live scoreboard
-
-### 4. Control Layout
-- The admin can set 1-match, 2-match, or 4-match display layouts from the dashboard
 
 ---
 
 ## ⚙️ Configuration
 
-Copy `.env.example` to `backend/.env` and edit:
+The launcher auto-creates `backend/.env` from `.env.example`. To change secrets:
 
 ```env
-JWT_SECRET=your_secret_here_min_32_chars
+JWT_SECRET=your_secret_here_min_32_chars   # change in production!
 DB_PASSWORD=your_db_password
-```
-
-The `./run` script creates `backend/.env` automatically from `.env.example` if it doesn't exist.
-
----
-
-## 🐳 Production Deployment
-
-For a production server (VPS, cloud, etc.):
-
-```bash
-./run --prod
-```
-
-This builds Docker images and starts the full stack (Postgres + Go backend + React frontend + Nginx) on port 80.
-
-Stop with:
-```bash
-docker compose down
-```
-
----
-
-## 🛑 Stop Dev Server
-
-```bash
-./run --stop
-# or just press Ctrl+C in the terminal where ./run is running
 ```
 
 ---
@@ -155,10 +182,10 @@ docker compose down
 
 | Layer | Technology |
 |---|---|
-| Backend | Go 1.21, Gin, WebSocket (gorilla/websocket) |
+| Backend | Go 1.21+, Gin, gorilla/websocket |
 | Frontend | React 18, TypeScript, Vite, Tailwind CSS |
-| Database | PostgreSQL 16 |
 | Animations | GSAP 3 |
 | State | Zustand |
-| Auth | JWT (device tokens + admin tokens) |
+| Database | PostgreSQL 16 |
+| Auth | JWT (admin tokens + device tokens) |
 | Infra | Docker, Nginx |

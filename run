@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────────────────────
-#  Scoreboard Pro — one-shot launcher
-#  Usage:  ./run            (starts everything)
-#          ./run --stop     (kills everything)
-#          ./run --prod     (production mode via docker compose)
+#  Scoreboard Pro — launcher (macOS / Linux / Git Bash on Windows)
+#  Usage:  ./run            → start everything (dev mode)
+#          ./run --stop     → stop everything
+#          ./run --prod     → production mode (docker compose full stack)
 # ──────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -36,14 +36,14 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 # ── Detect OS ─────────────────────────────────────────────────────────────────
-OS="unknown"
 case "$(uname -s)" in
-  Darwin) OS="mac"   ;;
-  Linux)  OS="linux" ;;
-  *) err "Unsupported OS: $(uname -s)"; exit 1 ;;
+  Darwin)           OS="mac"     ;;
+  Linux)            OS="linux"   ;;
+  MINGW*|MSYS*|CYGWIN*) OS="win-bash" ;;  # Git Bash / MSYS2 on Windows
+  *)  err "Unsupported OS: $(uname -s)"; exit 1 ;;
 esac
 
-# ── Detect Docker Compose command (V2 plugin vs V1 standalone) ────────────────
+# ── Detect Docker Compose command (V2 plugin OR V1 standalone) ────────────────
 detect_compose() {
   if docker compose version &>/dev/null 2>&1; then
     DC="docker compose"
@@ -54,59 +54,39 @@ detect_compose() {
   fi
 }
 
-# ── Install helper ────────────────────────────────────────────────────────────
+# ── Install helper (macOS & Linux only) ──────────────────────────────────────
 install_pkg() {
   local name="$1" brew_pkg="${2:-$1}" apt_pkg="${3:-$1}"
   warn "$name not found — installing…"
   if [[ "$OS" == "mac" ]]; then
-    if command -v brew &>/dev/null; then
-      brew install "$brew_pkg" --quiet
-    else
-      err "Homebrew not found. Install it first: https://brew.sh"
-      err "Then run: brew install $brew_pkg"
-      exit 1
-    fi
+    command -v brew &>/dev/null || { err "Homebrew not found. Install: https://brew.sh"; exit 1; }
+    brew install "$brew_pkg" --quiet
   elif [[ "$OS" == "linux" ]]; then
     if command -v apt-get &>/dev/null; then
       sudo apt-get update -qq && sudo apt-get install -y -qq "$apt_pkg"
     elif command -v yum &>/dev/null; then
       sudo yum install -y -q "$apt_pkg"
+    elif command -v dnf &>/dev/null; then
+      sudo dnf install -y -q "$apt_pkg"
     else
-      err "Cannot auto-install $name. Please install it manually."
-      exit 1
+      err "Cannot auto-install $name. Please install it manually."; exit 1
     fi
   fi
 }
 
-# ── Kill process on a port (cross-platform) ──────────────────────────────────
+# ── Cross-platform port killer ────────────────────────────────────────────────
 kill_port() {
-  local port="$1"
-  local pid=""
-  if command -v lsof &>/dev/null; then
-    pid=$(lsof -ti :"$port" 2>/dev/null || true)
-  elif command -v fuser &>/dev/null; then
-    pid=$(fuser "$port"/tcp 2>/dev/null | tr -s ' ' '\n' | grep -v '^$' || true)
-  elif command -v ss &>/dev/null; then
-    pid=$(ss -lptn "sport = :$port" 2>/dev/null | grep -oP 'pid=\K[0-9]+' || true)
+  local port="$1"; local pid=""
+  if   command -v lsof   &>/dev/null; then pid=$(lsof -ti :"$port" 2>/dev/null || true)
+  elif command -v fuser  &>/dev/null; then pid=$(fuser "$port"/tcp 2>/dev/null | tr -s ' ' '\n' | grep -v '^$' || true)
+  elif command -v ss     &>/dev/null; then pid=$(ss -lptn "sport = :$port" 2>/dev/null | grep -oP 'pid=\K[0-9]+' || true)
   fi
-  if [[ -n "$pid" ]]; then
+  if [[ -n "${pid:-}" ]]; then
     warn "Port $port in use (PID $pid) — killing it…"
     echo "$pid" | xargs kill -9 2>/dev/null || true
     sleep 0.5
   fi
 }
-
-# ── --stop flag ───────────────────────────────────────────────────────────────
-if [[ "${1:-}" == "--stop" ]]; then
-  detect_compose
-  log "Stopping all scoreboard processes…"
-  pkill -f "go run ./cmd/server" 2>/dev/null && ok "Backend killed"  || warn "Backend wasn't running"
-  pkill -f "vite"                2>/dev/null && ok "Frontend killed" || warn "Frontend wasn't running"
-  if [[ -n "$DC" ]]; then
-    $DC -f "$ROOT/docker-compose.yml" stop postgres 2>/dev/null && ok "Postgres stopped" || warn "Postgres wasn't running"
-  fi
-  exit 0
-fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 echo ""
@@ -115,199 +95,172 @@ echo "${BOLD}${BLUE}║     🏆  Scoreboard Pro — Dev Run     ║${RESET}"
 echo "${BOLD}${BLUE}╚══════════════════════════════════════╝${RESET}"
 echo ""
 
+# ── --stop ────────────────────────────────────────────────────────────────────
+if [[ "${1:-}" == "--stop" ]]; then
+  detect_compose
+  pkill -f "go run ./cmd/server" 2>/dev/null && ok "Backend killed"  || warn "Backend wasn't running"
+  pkill -f "vite"                2>/dev/null && ok "Frontend killed" || warn "Frontend wasn't running"
+  [[ -n "${DC:-}" ]] && $DC -f "$ROOT/docker-compose.yml" stop postgres 2>/dev/null && ok "Postgres stopped" || true
+  exit 0
+fi
+
 step "Checking prerequisites"
 
-# ── 1. Check / install Docker ─────────────────────────────────────────────────
+# ── 1. Docker ─────────────────────────────────────────────────────────────────
 if ! command -v docker &>/dev/null; then
-  if [[ "$OS" == "mac" ]]; then
-    err "Docker Desktop is not installed. Download: https://www.docker.com/products/docker-desktop/"
-    exit 1
-  else
-    install_pkg "Docker" "docker" "docker.io"
-    sudo systemctl start docker 2>/dev/null || true
-    # Add current user to docker group
-    sudo usermod -aG docker "$USER" 2>/dev/null || true
-  fi
+  case "$OS" in
+    mac)      err "Install Docker Desktop: https://www.docker.com/products/docker-desktop/"; exit 1 ;;
+    win-bash) err "Install Docker Desktop for Windows: https://www.docker.com/products/docker-desktop/"; exit 1 ;;
+    linux)    install_pkg "Docker" "docker" "docker.io"
+              sudo systemctl enable --now docker 2>/dev/null || true ;;
+  esac
 fi
-ok "Docker found: $(docker --version | head -1)"
+ok "Docker: $(docker --version | head -1)"
 
 if ! docker info &>/dev/null; then
   if [[ "$OS" == "mac" ]]; then
-    warn "Docker Desktop not running — starting it…"
+    warn "Docker not running — starting Docker Desktop…"
     open -a Docker 2>/dev/null || true
-    log "Waiting for Docker to start (up to 60s)…"
     RETRIES=60
     until docker info &>/dev/null; do
-      RETRIES=$((RETRIES - 1))
+      sleep 1; RETRIES=$((RETRIES-1))
       [[ $RETRIES -le 0 ]] && { err "Docker didn't start. Open Docker Desktop manually."; exit 1; }
-      sleep 1
     done
+  elif [[ "$OS" == "win-bash" ]]; then
+    warn "Docker not running. Start Docker Desktop for Windows, then re-run this script."
+    exit 1
   else
-    sudo systemctl start docker 2>/dev/null || { err "Cannot start Docker. Try: sudo systemctl start docker"; exit 1; }
+    sudo systemctl start docker 2>/dev/null || { err "Cannot start Docker. Run: sudo systemctl start docker"; exit 1; }
     sleep 2
   fi
 fi
 ok "Docker is running"
 
-# ── 2. Detect / install Docker Compose ───────────────────────────────────────
+# ── 2. Docker Compose ─────────────────────────────────────────────────────────
 detect_compose
-if [[ -z "$DC" ]]; then
+if [[ -z "${DC:-}" ]]; then
   warn "Docker Compose not found — installing…"
-  if [[ "$OS" == "mac" ]]; then
-    err "Install Docker Desktop which includes Compose: https://www.docker.com/products/docker-desktop/"
-    exit 1
-  else
-    # Install compose V2 plugin
+  if [[ "$OS" == "linux" ]]; then
     sudo apt-get install -y -qq docker-compose-plugin 2>/dev/null || \
-    sudo apt-get install -y -qq docker-compose 2>/dev/null || \
-    {
-      # Manual install of compose V2
-      COMPOSE_VERSION="v2.24.5"
+    sudo apt-get install -y -qq docker-compose 2>/dev/null || {
+      ARCH="$(uname -m)"; [[ "$ARCH" == "aarch64" ]] && ARCH="aarch64" || ARCH="x86_64"
       sudo mkdir -p /usr/local/lib/docker/cli-plugins
-      sudo curl -fsSL "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-$(uname -m)" \
+      sudo curl -fsSL "https://github.com/docker/compose/releases/download/v2.24.5/docker-compose-linux-${ARCH}" \
         -o /usr/local/lib/docker/cli-plugins/docker-compose
       sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
     }
     detect_compose
   fi
 fi
-[[ -z "$DC" ]] && { err "Docker Compose is required. Install it: https://docs.docker.com/compose/install/"; exit 1; }
-ok "Docker Compose found: $($DC version --short 2>/dev/null || $DC version 2>/dev/null | head -1)"
+[[ -z "${DC:-}" ]] && { err "Docker Compose required. See: https://docs.docker.com/compose/install/"; exit 1; }
+ok "Docker Compose: $($DC version --short 2>/dev/null || $DC version 2>/dev/null | head -1)"
 
-# ── --prod flag: full docker compose stack ────────────────────────────────────
+# ── --prod ────────────────────────────────────────────────────────────────────
 if [[ "${1:-}" == "--prod" ]]; then
-  step "Production Mode"
-  log "Building and starting all services…"
-  cd "$ROOT"
-  $DC up --build -d
+  step "Production Mode (full docker stack)"
+  cd "$ROOT" && $DC up --build -d
   echo ""
-  echo "${BOLD}${GREEN}╔══════════════════════════════════════════╗${RESET}"
-  echo "${BOLD}${GREEN}║    ✅  Production stack is running!      ║${RESET}"
-  echo "${BOLD}${GREEN}╠══════════════════════════════════════════╣${RESET}"
-  echo "${BOLD}${GREEN}║  App  →  http://localhost                ║${RESET}"
-  echo "${BOLD}${GREEN}║  Admin login: admin@scoreboard.local     ║${RESET}"
-  echo "${BOLD}${GREEN}║  Password:    Admin@1234                 ║${RESET}"
-  echo "${BOLD}${GREEN}╠══════════════════════════════════════════╣${RESET}"
-  echo "${BOLD}${GREEN}║  Stop with:  $DC down              ║${RESET}"
-  echo "${BOLD}${GREEN}╚══════════════════════════════════════════╝${RESET}"
+  echo "${BOLD}${GREEN}╔═════════════════════════════════════╗${RESET}"
+  echo "${BOLD}${GREEN}║  ✅  Production stack is running!   ║${RESET}"
+  echo "${BOLD}${GREEN}╠═════════════════════════════════════╣${RESET}"
+  echo "${BOLD}${GREEN}║  App  →  http://localhost           ║${RESET}"
+  echo "${BOLD}${GREEN}║  Login: admin@scoreboard.local      ║${RESET}"
+  echo "${BOLD}${GREEN}║  Pass:  Admin@1234                  ║${RESET}"
+  echo "${BOLD}${GREEN}╠═════════════════════════════════════╣${RESET}"
+  echo "${BOLD}${GREEN}║  Stop: $DC down            ║${RESET}"
+  echo "${BOLD}${GREEN}╚═════════════════════════════════════╝${RESET}"
   exit 0
 fi
 
-# ── 3. Check / install Go ─────────────────────────────────────────────────────
+# ── 3. Go ─────────────────────────────────────────────────────────────────────
 if ! command -v go &>/dev/null; then
-  if [[ "$OS" == "mac" ]]; then
-    install_pkg "Go" "go"
-    export PATH="$PATH:$(brew --prefix go 2>/dev/null)/bin"
-  else
-    warn "Go not found — downloading Go 1.22…"
-    GOARCH="amd64"
-    [[ "$(uname -m)" == "aarch64" ]] && GOARCH="arm64"
-    curl -fsSL "https://go.dev/dl/go1.22.4.linux-${GOARCH}.tar.gz" -o /tmp/go.tar.gz
-    sudo rm -rf /usr/local/go
-    sudo tar -C /usr/local -xzf /tmp/go.tar.gz
-    rm -f /tmp/go.tar.gz
-    export PATH="$PATH:/usr/local/go/bin"
-    echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc 2>/dev/null || true
-  fi
+  case "$OS" in
+    mac) install_pkg "Go" "go"; export PATH="$PATH:$(brew --prefix go 2>/dev/null)/bin" ;;
+    win-bash) err "Go not found. Download and install: https://go.dev/dl/"; exit 1 ;;
+    linux)
+      GOARCH="amd64"; [[ "$(uname -m)" == "aarch64" ]] && GOARCH="arm64"
+      warn "Go not found — downloading Go 1.22 (${GOARCH})…"
+      curl -fsSL "https://go.dev/dl/go1.22.4.linux-${GOARCH}.tar.gz" -o /tmp/go.tar.gz
+      sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz
+      export PATH="$PATH:/usr/local/go/bin"
+      grep -q '/usr/local/go/bin' ~/.bashrc 2>/dev/null || echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
+      ;;
+  esac
 fi
 export PATH="$PATH:/usr/local/go/bin"
-command -v go &>/dev/null || { err "Go not found after install. Add it to PATH manually."; exit 1; }
-ok "Go found: $(go version)"
+command -v go &>/dev/null || { err "Go not found. Download: https://go.dev/dl/"; exit 1; }
+ok "Go: $(go version)"
 
-# ── 4. Check / install Node.js ────────────────────────────────────────────────
+# ── 4. Node.js ────────────────────────────────────────────────────────────────
 if ! command -v node &>/dev/null; then
-  if [[ "$OS" == "mac" ]]; then
-    install_pkg "Node.js" "node"
-  else
-    warn "Node.js not found — installing via NodeSource (Node 20)…"
-    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - &>/dev/null
-    sudo apt-get install -y -qq nodejs
-  fi
+  case "$OS" in
+    mac) install_pkg "Node.js" "node" ;;
+    win-bash) err "Node.js not found. Download: https://nodejs.org/"; exit 1 ;;
+    linux)
+      warn "Node.js not found — installing Node 20 via NodeSource…"
+      curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - &>/dev/null
+      sudo apt-get install -y -qq nodejs
+      ;;
+  esac
 fi
-ok "Node.js found: $(node --version)"
+ok "Node.js: $(node --version)"
 
-# ── 5. Copy .env if missing ───────────────────────────────────────────────────
+# ── 5. .env setup ─────────────────────────────────────────────────────────────
 if [[ ! -f "$BACKEND/.env" ]]; then
-  warn "backend/.env not found — copying from .env.example"
+  warn "backend/.env missing — copying from .env.example"
   cp "$ROOT/.env.example" "$BACKEND/.env"
-  ok "Created backend/.env (edit it to change secrets)"
+  ok "Created backend/.env"
 fi
 
-# ── 6. Start / ensure Postgres ────────────────────────────────────────────────
+# ── 6. Postgres ───────────────────────────────────────────────────────────────
 step "Starting Postgres (Docker)"
 cd "$ROOT"
-
-# Start postgres (suppress the -d unknown flag issue with older compose by trying flags)
-$DC up postgres -d 2>/dev/null || $DC up postgres --detach 2>/dev/null || \
-  { $DC up postgres -d --no-color 2>&1 | grep -v "^$" || true; }
+$DC up postgres -d 2>/dev/null || $DC up postgres --detach 2>/dev/null || true
 
 log "Waiting for Postgres to be healthy…"
 RETRIES=40
 until $DC exec -T postgres pg_isready -U scoreboard -d scoreboard -q 2>/dev/null; do
-  RETRIES=$((RETRIES - 1))
-  if [[ $RETRIES -le 0 ]]; then
-    err "Postgres didn't become ready. Check: $DC logs postgres"
-    exit 1
-  fi
+  RETRIES=$((RETRIES-1))
+  [[ $RETRIES -le 0 ]] && { err "Postgres failed. Run: $DC logs postgres"; exit 1; }
   sleep 1
 done
 ok "Postgres is ready"
 
-# ── 7. Kill any stale process on :8080 ───────────────────────────────────────
+# ── 7. Backend ────────────────────────────────────────────────────────────────
 kill_port 8080
-
-# ── 8. Backend ────────────────────────────────────────────────────────────────
 step "Starting Backend (Go)"
 cd "$BACKEND"
-
-(
-  go run ./cmd/server 2>&1 | while IFS= read -r line; do
-    echo "${BOLD}${MAGENTA}[backend]${RESET} $line"
-  done
-) &
+(go run ./cmd/server 2>&1 | while IFS= read -r line; do echo "${BOLD}${MAGENTA}[backend]${RESET} $line"; done) &
 BACKEND_PID=$!
 
-log "Waiting for Backend on :8080…"
+log "Waiting for backend on :8080…"
 RETRIES=30
 until curl -sf http://localhost:8080/health &>/dev/null; do
-  RETRIES=$((RETRIES - 1))
-  if [[ $RETRIES -le 0 ]]; then
-    err "Backend didn't start in time. Check output above."
-    cleanup; exit 1
-  fi
+  RETRIES=$((RETRIES-1))
+  [[ $RETRIES -le 0 ]] && { err "Backend didn't start."; cleanup; exit 1; }
   sleep 0.5
 done
 ok "Backend ready → http://localhost:8080"
 
-# ── 9. Frontend ───────────────────────────────────────────────────────────────
+# ── 8. Frontend ───────────────────────────────────────────────────────────────
 step "Starting Frontend (Vite / React)"
 cd "$FRONTEND"
-
 if [[ ! -d node_modules ]]; then
-  warn "node_modules not found — running npm install…"
-  npm install --legacy-peer-deps --silent
-  ok "npm install complete"
+  warn "node_modules missing — running npm install…"
+  npm install --legacy-peer-deps --silent && ok "npm install done"
 fi
-
-(
-  npm run dev -- --host 0.0.0.0 2>&1 | while IFS= read -r line; do
-    echo "${BOLD}${YELLOW}[frontend]${RESET} $line"
-  done
-) &
+(npm run dev -- --host 0.0.0.0 2>&1 | while IFS= read -r line; do echo "${BOLD}${YELLOW}[frontend]${RESET} $line"; done) &
 FRONTEND_PID=$!
 
-log "Waiting for Frontend on :3000…"
+log "Waiting for frontend on :3000…"
 RETRIES=40
 until curl -sf http://localhost:3000 &>/dev/null; do
-  RETRIES=$((RETRIES - 1))
-  if [[ $RETRIES -le 0 ]]; then
-    err "Frontend didn't start in time."
-    cleanup; exit 1
-  fi
+  RETRIES=$((RETRIES-1))
+  [[ $RETRIES -le 0 ]] && { err "Frontend didn't start."; cleanup; exit 1; }
   sleep 0.5
 done
 
-# ── 10. Ready banner ──────────────────────────────────────────────────────────
+# ── Ready ─────────────────────────────────────────────────────────────────────
 echo ""
 echo "${BOLD}${GREEN}╔════════════════════════════════════════════════════╗${RESET}"
 echo "${BOLD}${GREEN}║          ✅  Everything is running!                ║${RESET}"
