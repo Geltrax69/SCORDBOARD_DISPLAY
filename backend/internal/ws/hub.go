@@ -37,6 +37,10 @@ func NewHub() *Hub {
 }
 
 func (h *Hub) Run() {
+	// Periodic cleanup of dead connections (every 2 minutes)
+	ticker := time.NewTicker(2 * time.Minute)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case client := <-h.register:
@@ -71,20 +75,53 @@ func (h *Hub) Run() {
 
 		case msg := <-h.broadcast:
 			h.mu.RLock()
-			var targets map[*Client]bool
 			if msg.room == "global" {
-				targets = h.global
+				for client := range h.global {
+					select {
+					case client.send <- msg.message:
+					default:
+						// buffer full — skip
+					}
+				}
 			} else {
-				targets = h.rooms[msg.room]
-			}
-			for client := range targets {
-				select {
-				case client.send <- msg.message:
-				default:
-					// buffer full — skip
+				// Send to room clients
+				roomClients := h.rooms[msg.room]
+				for client := range roomClients {
+					select {
+					case client.send <- msg.message:
+					default:
+						// buffer full — skip
+					}
+				}
+				// Also send to global clients who are NOT in the room clients map
+				for client := range h.global {
+					if roomClients == nil || !roomClients[client] {
+						select {
+						case client.send <- msg.message:
+						default:
+							// buffer full — skip
+						}
+					}
 				}
 			}
 			h.mu.RUnlock()
+
+		case <-ticker.C:
+			// Clean up connections that haven't been seen in 5 minutes
+			h.mu.Lock()
+			now := time.Now()
+			var deadClients []*Client
+			for client := range h.clients {
+				if now.Sub(client.lastSeen) > 5*time.Minute {
+					deadClients = append(deadClients, client)
+				}
+			}
+			h.mu.Unlock()
+			for _, client := range deadClients {
+				client.conn.Close()
+				h.Unregister(client)
+				log.Printf("[ws] removed dead connection device=%s (inactive for 5min)", client.deviceName)
+			}
 		}
 	}
 }

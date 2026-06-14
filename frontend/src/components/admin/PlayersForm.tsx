@@ -26,11 +26,29 @@ interface PlayerRowProps {
 function PlayerRow({ player, color, index, token, onUpdate, onRemove }: PlayerRowProps) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState('')
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+    
+    // Validate file size (5MB max)
+    if (file.size > 5 * 1024 * 1024) {
+      setUploadError('File too large (max 5 MB)')
+      setTimeout(() => setUploadError(''), 3000)
+      return
+    }
+
+    // Validate file type
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+    if (!allowed.includes(file.type)) {
+      setUploadError('Only jpg, png, webp, gif allowed')
+      setTimeout(() => setUploadError(''), 3000)
+      return
+    }
+
     setUploading(true)
+    setUploadError('')
     try {
       const form = new FormData()
       form.append('photo', file)
@@ -39,8 +57,26 @@ function PlayerRow({ player, color, index, token, onUpdate, onRemove }: PlayerRo
         headers: { Authorization: `Bearer ${token}` },
         body: form,
       })
+      
       const data = await res.json()
-      if (data.url) onUpdate('photo_url', data.url)
+      if (!res.ok) {
+        setUploadError(data.error || `Upload failed (${res.status})`)
+        setTimeout(() => setUploadError(''), 3000)
+        return
+      }
+      
+      if (data.url) {
+        onUpdate('photo_url', data.url)
+        setUploadError('')
+      } else {
+        setUploadError('No URL returned from server')
+        setTimeout(() => setUploadError(''), 3000)
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Upload failed'
+      setUploadError(errMsg)
+      console.error('Photo upload error:', err)
+      setTimeout(() => setUploadError(''), 3000)
     } finally {
       setUploading(false)
       e.target.value = ''
@@ -51,7 +87,7 @@ function PlayerRow({ player, color, index, token, onUpdate, onRemove }: PlayerRo
 
   return (
     <div
-      className="flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all group"
+      className="relative flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all group"
       style={{ backgroundColor: `${color}06`, borderColor: `${color}20` }}
     >
       {/* Photo avatar — click to upload */}
@@ -119,6 +155,13 @@ function PlayerRow({ player, color, index, token, onUpdate, onRemove }: PlayerRo
       >
         <X size={14} />
       </button>
+
+      {/* Upload error message */}
+      {uploadError && (
+        <div className="absolute -bottom-7 left-0 text-xs text-red-400 font-medium whitespace-nowrap">
+          {uploadError}
+        </div>
+      )}
     </div>
   )
 }

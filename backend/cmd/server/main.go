@@ -100,6 +100,7 @@ func main() {
 
 	// Public endpoints (no auth)
 	r.POST("/api/connect", deviceH.Connect)
+	r.POST("/api/refresh-token", deviceH.RefreshToken)
 	r.GET("/api/display/layout", deviceH.GetLayout)
 
 	api := r.Group("/api")

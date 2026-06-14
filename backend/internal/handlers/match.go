@@ -46,10 +46,10 @@ func (h *MatchHandler) Create(c *gin.Context) {
 	if len(req.PlayersA)+len(req.PlayersB) > 0 {
 		var players []models.Player
 		for _, p := range req.PlayersA {
-			players = append(players, models.Player{MatchID: m.ID, Team: "A", Name: p.Name, JerseyNumber: p.JerseyNumber})
+			players = append(players, models.Player{MatchID: m.ID, Team: "A", Name: p.Name, JerseyNumber: p.JerseyNumber, PhotoURL: p.PhotoURL, Status: p.Status})
 		}
 		for _, p := range req.PlayersB {
-			players = append(players, models.Player{MatchID: m.ID, Team: "B", Name: p.Name, JerseyNumber: p.JerseyNumber})
+			players = append(players, models.Player{MatchID: m.ID, Team: "B", Name: p.Name, JerseyNumber: p.JerseyNumber, PhotoURL: p.PhotoURL, Status: p.Status})
 		}
 		_ = h.playerRepo.SetPlayers(m.ID, players)
 	}
@@ -138,10 +138,10 @@ func (h *MatchHandler) SetPlayers(c *gin.Context) {
 	}
 	var players []models.Player
 	for _, p := range body.PlayersA {
-		players = append(players, models.Player{MatchID: matchID, Team: "A", Name: p.Name, JerseyNumber: p.JerseyNumber})
+		players = append(players, models.Player{MatchID: matchID, Team: "A", Name: p.Name, JerseyNumber: p.JerseyNumber, PhotoURL: p.PhotoURL, Status: p.Status})
 	}
 	for _, p := range body.PlayersB {
-		players = append(players, models.Player{MatchID: matchID, Team: "B", Name: p.Name, JerseyNumber: p.JerseyNumber})
+		players = append(players, models.Player{MatchID: matchID, Team: "B", Name: p.Name, JerseyNumber: p.JerseyNumber, PhotoURL: p.PhotoURL, Status: p.Status})
 	}
 	if err := h.playerRepo.SetPlayers(matchID, players); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save players"})

@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { gsap } from 'gsap'
 import type { Match, Player } from '@/types'
 import { User } from 'lucide-react'
+import { AnimatedPlayerPhoto } from '@/components/display/AnimatedPlayerPhoto'
 
 interface Props {
   match: Match
@@ -13,16 +14,24 @@ function PlayerCard({ player, color, side }: { player: Player; color: string; si
   return (
     <div className={`flex items-center gap-3 ${side === 'right' ? 'flex-row-reverse' : ''}`}>
       {/* Photo or avatar */}
-      <div
-        className="w-12 h-12 sm:w-16 sm:h-16 rounded-xl flex-shrink-0 overflow-hidden border-2 flex items-center justify-center"
-        style={{ borderColor: color + '60', backgroundColor: color + '15' }}
-      >
-        {player.photo_url ? (
-          <img src={player.photo_url} alt={player.name} className="w-full h-full object-cover" />
-        ) : (
+      {player.photo_url ? (
+        <AnimatedPlayerPhoto
+          src={player.photo_url}
+          alt={player.name}
+          accent={color}
+          size="sm"
+          className="data-player-photo-frame flex-shrink-0"
+          imageClassName="data-player-photo-img"
+        />
+      ) : (
+        <div
+          className="w-12 h-12 sm:w-16 sm:h-16 rounded-xl flex-shrink-0 overflow-hidden border-2 flex items-center justify-center"
+          data-player-photo-frame
+          style={{ borderColor: color + '60', backgroundColor: color + '15' }}
+        >
           <User size={24} style={{ color }} />
-        )}
-      </div>
+        </div>
+      )}
       <div className={side === 'right' ? 'text-right' : 'text-left'}>
         <p className="font-bold text-white text-sm sm:text-base leading-tight">{player.name}</p>
         <div className="flex items-center gap-1.5" style={{ justifyContent: side === 'right' ? 'flex-end' : 'flex-start' }}>
@@ -45,6 +54,8 @@ export function PlayerLineup({ match, players, onDone }: Props) {
   const playersARef   = useRef<HTMLDivElement>(null)
   const playersBRef   = useRef<HTMLDivElement>(null)
 
+  const [maskFrame, setMaskFrame] = useState<number | null>(null)
+
   const playersA = players.filter((p) => p.team === 'A')
   const playersB = players.filter((p) => p.team === 'B')
 
@@ -52,13 +63,23 @@ export function PlayerLineup({ match, players, onDone }: Props) {
     if (!containerRef.current) return
 
     const tl = gsap.timeline({ onComplete: onDone })
+    const maskObj = { frame: 0 }
+    setMaskFrame(0)
 
     // Entrance
     tl.set(containerRef.current, { opacity: 1 })
+      .to(maskObj, {
+        frame: 29,
+        duration: 0.7,
+        ease: 'steps(29)',
+        onUpdate: () => setMaskFrame(Math.round(maskObj.frame)),
+        onComplete: () => setMaskFrame(null),
+      })
       // Tournament title
       .fromTo(tourRef.current,
         { y: -40, opacity: 0 },
-        { y: 0, opacity: 1, duration: 0.5, ease: 'power3.out' }
+        { y: 0, opacity: 1, duration: 0.5, ease: 'power3.out' },
+        '-=0.45'
       )
       // Team A name slides from left
       .fromTo(teamARef.current,
@@ -90,24 +111,25 @@ export function PlayerLineup({ match, players, onDone }: Props) {
         '<'
       )
       // Hold
-      .to({}, { duration: 3.5 })
+      .to({}, { duration: 4.2 })
       // Spotlight pulse on VS
       .to(vsRef.current, {
         scale: 1.2, textShadow: '0 0 60px rgba(99,102,241,0.9)',
         duration: 0.3, yoyo: true, repeat: 1,
       })
-      // Exit — everything collapses inward
-      .to([teamARef.current, playersARef.current],
-        { x: -80, opacity: 0, duration: 0.4, ease: 'power2.in' }, '+=0.3'
-      )
-      .to([teamBRef.current, playersBRef.current],
-        { x: 80, opacity: 0, duration: 0.4, ease: 'power2.in' }, '<'
-      )
-      .to([tourRef.current, vsRef.current],
-        { y: -40, opacity: 0, duration: 0.3, ease: 'power2.in' }, '<0.1'
-      )
+      // Exit — wipe entire screen away
+      .call(() => {
+        maskObj.frame = 29
+        setMaskFrame(29)
+      })
+      .to(maskObj, {
+        frame: 0,
+        duration: 0.65,
+        ease: 'steps(29)',
+        onUpdate: () => setMaskFrame(Math.round(maskObj.frame)),
+      }, '+=0.2')
       .to(containerRef.current,
-        { opacity: 0, duration: 0.4 }
+        { opacity: 0, duration: 0.2 }
       )
 
     return () => { tl.kill() }
@@ -117,7 +139,12 @@ export function PlayerLineup({ match, players, onDone }: Props) {
     <div
       ref={containerRef}
       className="fixed inset-0 z-50 flex flex-col items-center justify-center overflow-hidden"
-      style={{ opacity: 0, background: 'radial-gradient(ellipse at center, #0f172a 0%, #020617 100%)' }}
+      style={{ 
+        opacity: 0, 
+        background: 'radial-gradient(ellipse at center, #0f172a 0%, #020617 100%)',
+        mask: maskFrame !== null ? 'url(#lineup-circle-reveal-mask)' : 'none',
+        WebkitMask: maskFrame !== null ? 'url(#lineup-circle-reveal-mask)' : 'none'
+      }}
     >
       {/* Background team glows */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
@@ -188,6 +215,22 @@ export function PlayerLineup({ match, players, onDone }: Props) {
           </div>
         </div>
       </div>
+      
+      {/* SVG Mask Definition */}
+      <svg width="0" height="0" style={{ position: 'absolute', pointerEvents: 'none' }}>
+        <defs>
+          <mask id="lineup-circle-reveal-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="100%" height="100%">
+            <image
+              href="/liquidMask2.svg"
+              x="0"
+              y={maskFrame !== null ? `-${maskFrame * 100}%` : '0%'}
+              width="100%"
+              height="3000%"
+              preserveAspectRatio="none"
+            />
+          </mask>
+        </defs>
+      </svg>
     </div>
   )
 }

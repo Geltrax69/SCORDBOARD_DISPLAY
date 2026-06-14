@@ -158,3 +158,13 @@ func (r *MatchRepo) GetCourtID(matchID string) (string, error) {
 	err := r.db.QueryRow(`SELECT court_id FROM matches WHERE id=$1`, matchID).Scan(&courtID)
 	return courtID, err
 }
+
+func (r *MatchRepo) UpdatePlayerStatus(matchID, team, name, status string) error {
+	_, err := r.db.Exec(
+		`UPDATE match_players 
+		 SET status = $1 
+		 WHERE match_id = $2 AND team = $3 AND LOWER(TRIM(name)) = LOWER(TRIM($4))`,
+		status, matchID, team, name,
+	)
+	return err
+}

@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Trophy, Wifi, CheckCircle, AlertCircle, Loader, Plus, Minus,
-         Play, Square, Timer, PauseCircle, Clock, RefreshCw } from 'lucide-react'
+         Play, Square, Timer, PauseCircle, Clock, RefreshCw, ArrowDownUp } from 'lucide-react'
 import { Button } from '@/components/common/Button'
 import { scoreboardWS } from '@/services/websocket'
+import { SubstitutionModal } from '@/components/admin/SubstitutionModal'
+import { Modal } from '@/components/common/Modal'
 import type { Match, MatchState, WSMessage } from '@/types'
 
 const API_BASE = import.meta.env.VITE_API_URL ?? '/api'
@@ -17,7 +19,9 @@ async function deviceFetch(url: string, token: string, body?: object) {
   })
   if (!r.ok) {
     const d = await r.json().catch(() => ({}))
-    throw new Error(d.error ?? `HTTP ${r.status}`)
+    const err = new Error(d.error ?? `HTTP ${r.status}`) as any
+    err.status = r.status
+    throw err
   }
   return r.json()
 }
@@ -55,7 +59,7 @@ function ScoreBtn({ label, color, onClick, loading }: {
 }
 
 // ── Connected scorer panel ──────────────────────────────────────────────────
-function ScorerPanel({ match: initialMatch, token, onDisconnect }: {
+function ScorerPanel({ match: initialMatch, token: initialToken, onDisconnect }: {
   match: Match; token: string; onDisconnect: () => void
 }) {
   const [match, setMatch]   = useState(initialMatch)
@@ -64,6 +68,9 @@ function ScorerPanel({ match: initialMatch, token, onDisconnect }: {
   const [fireError, setFireError] = useState('')
   const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'error' | 'disconnected'>('connecting')
   const [timer, setTimer]   = useState(0)
+  const [token, setToken]   = useState(initialToken)
+  const [subOpen, setSubOpen] = useState(false)
+  const [winnerModalOpen, setWinnerModalOpen] = useState(false)
 
   // Fetch initial state
   const refresh = useCallback(async () => {
@@ -71,22 +78,43 @@ function ScorerPanel({ match: initialMatch, token, onDisconnect }: {
       const d = await deviceFetch(`${API_BASE}/matches/${match.id}`, token)
       setMatch(d.match); setState(d.state)
       setTimer(d.state.timer_seconds ?? 0)
-    } catch {}
-  }, [match.id, token])
+    } catch (err: any) {
+      if (err.status === 401) {
+        console.warn('Device pairing token expired or invalid. Disconnecting...')
+        onDisconnect()
+        return
+      }
+      const errMsg = err instanceof Error ? err.message : 'Failed to load match data'
+      console.error('Match refresh error:', errMsg)
+      setFireError(errMsg)
+      setTimeout(() => setFireError(''), 5000)
+    }
+  }, [match.id, token, onDisconnect])
 
   useEffect(() => { refresh() }, [refresh])
 
-  // WebSocket live updates
+  // WebSocket live updates - selective update instead of full refresh
   useEffect(() => {
     const wsURL = `${WS_BASE}/ws/match/${match.id}?token=${encodeURIComponent(token)}`
-    scoreboardWS.connect(wsURL, setWsStatus)
-
-    const unsub = scoreboardWS.subscribe((_msg: WSMessage) => {
-      // Re-fetch state on any WS event so scores, timer, and status stay in sync
-      refresh()
+    scoreboardWS.connect(wsURL, (status) => {
+      setWsStatus(status)
+      if (status === 'error') {
+        setFireError('WebSocket connection error - attempting to reconnect...')
+        setTimeout(() => setFireError(''), 5000)
+      }
     })
-    return unsub
-  }, [match.id, token, refresh])
+
+    const unsub = scoreboardWS.subscribe((msg: WSMessage) => {
+      // Selective update: only update relevant fields based on message type
+      if (msg.payload?.match && msg.payload?.state) {
+        setMatch(msg.payload.match)
+        setState(msg.payload.state)
+        // Sync timer when state updates
+        setTimer(msg.payload.state.timer_seconds ?? 0)
+      }
+    })
+    return () => { unsub(); scoreboardWS.disconnect() }
+  }, [match.id, token])
 
   // Local timer tick when running
   useEffect(() => {
@@ -94,6 +122,31 @@ function ScorerPanel({ match: initialMatch, token, onDisconnect }: {
     const id = setInterval(() => setTimer(t => t + 1), 1000)
     return () => clearInterval(id)
   }, [state?.timer_running])
+
+  // Auto-refresh token before expiration (every 6 hours for 12-hour tokens)
+  useEffect(() => {
+    const refreshInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/refresh-token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token })
+        })
+        if (res.ok) {
+          const data = await res.json()
+          setToken(data.token)
+          localStorage.setItem('scorer_token', data.token)
+          console.log('Token refreshed successfully')
+        } else {
+          console.error('Token refresh failed')
+        }
+      } catch (err) {
+        console.error('Token refresh error:', err)
+      }
+    }, 6 * 60 * 60 * 1000) // Every 6 hours
+
+    return () => clearInterval(refreshInterval)
+  }, [token])
 
   const fire = async (key: string, type: string, payload?: object) => {
     setLoading(key)
@@ -322,6 +375,21 @@ function ScorerPanel({ match: initialMatch, token, onDisconnect }: {
           </div>
         )}
 
+        {/* Substitution button */}
+        {status === 'active' && (
+          <button
+            onClick={() => setSubOpen(true)}
+            disabled={!!loading}
+            className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl text-base font-bold text-purple-400 transition-all active:scale-95 disabled:opacity-50"
+            style={{
+              backgroundColor: 'rgba(192,132,252,0.12)',
+              border: '2px solid rgba(192,132,252,0.35)',
+            }}
+          >
+            <ArrowDownUp size={18} /> Substitution
+          </button>
+        )}
+
         {/* End timeout */}
         {status === 'timeout' && (
           <button
@@ -337,7 +405,7 @@ function ScorerPanel({ match: initialMatch, token, onDisconnect }: {
         {/* End match */}
         {active && (
           <button
-            onClick={() => fire('end', 'match_end')}
+            onClick={() => setWinnerModalOpen(true)}
             disabled={!!loading}
             className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl text-sm font-bold text-[#6b7280] transition-all active:scale-95 disabled:opacity-50"
             style={{ backgroundColor: 'rgba(107,114,128,0.08)', border: '2px solid rgba(107,114,128,0.2)' }}
@@ -362,11 +430,72 @@ function ScorerPanel({ match: initialMatch, token, onDisconnect }: {
           Disconnect
         </button>
       </div>
+      <SubstitutionModal
+        open={subOpen}
+        onClose={() => { setSubOpen(false); refresh() }}
+        matchId={match.id}
+        teamA={match.team_a}
+        teamB={match.team_b}
+        token={token}
+      />
+      <Modal
+        open={winnerModalOpen}
+        onClose={() => setWinnerModalOpen(false)}
+        title="Select Winner"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-dark-300">
+            Please choose the winner of this match. This will finalize the scores and show the winner on the display screen.
+          </p>
+          <div className="grid grid-cols-1 gap-2.5">
+            <button
+              onClick={() => {
+                setWinnerModalOpen(false)
+                fire('end', 'match_end', { winner: 'A' })
+              }}
+              className="w-full py-3.5 px-4 rounded-xl border border-dark-600 hover:border-emerald-500 bg-[#0f2035] hover:bg-emerald-900/10 font-bold transition-all text-left flex items-center justify-between"
+              style={{ color: match.team_a_color }}
+            >
+              <span>{match.team_a}</span>
+              <span className="text-xs bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-black font-score">Score: {scoreA}</span>
+            </button>
+            <button
+              onClick={() => {
+                setWinnerModalOpen(false)
+                fire('end', 'match_end', { winner: 'B' })
+              }}
+              className="w-full py-3.5 px-4 rounded-xl border border-dark-600 hover:border-emerald-500 bg-[#0f2035] hover:bg-emerald-900/10 font-bold transition-all text-left flex items-center justify-between"
+              style={{ color: match.team_b_color }}
+            >
+              <span>{match.team_b}</span>
+              <span className="text-xs bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-black font-score">Score: {scoreB}</span>
+            </button>
+            <button
+              onClick={() => {
+                setWinnerModalOpen(false)
+                fire('end', 'match_end', { winner: 'draw' })
+              }}
+              className="w-full py-3.5 px-4 rounded-xl border border-[#1e3450] hover:border-dark-400 bg-[#0a1828] hover:bg-dark-700/50 font-bold text-white transition-all text-left flex items-center justify-between"
+            >
+              <span>Tie / Draw</span>
+              <span className="text-xs bg-dark-750 text-dark-400 px-2 py-0.5 rounded">Scores Equal</span>
+            </button>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              onClick={() => setWinnerModalOpen(false)}
+              className="px-4 py-2 rounded-lg text-sm font-semibold text-dark-300 hover:bg-dark-700 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }
 
-// ── Connect form ────────────────────────────────────────────────────────────
 export default function Connect() {
   const [code, setCode]             = useState('')
   const [deviceName, setDeviceName] = useState('')
@@ -374,6 +503,22 @@ export default function Connect() {
   const [match, setMatch]           = useState<Match | null>(null)
   const [token, setToken]           = useState('')
   const [error, setError]           = useState('')
+
+  // Restore session on mount
+  useEffect(() => {
+    const savedToken = localStorage.getItem('scorer_token')
+    const savedMatch = localStorage.getItem('scorer_match')
+    if (savedToken && savedMatch) {
+      try {
+        setToken(savedToken)
+        setMatch(JSON.parse(savedMatch))
+        setStep('connected')
+      } catch {
+        localStorage.removeItem('scorer_token')
+        localStorage.removeItem('scorer_match')
+      }
+    }
+  }, [])
 
   const handleConnect = async (codeOverride?: string) => {
     const c = codeOverride ?? code
@@ -390,6 +535,8 @@ export default function Connect() {
         throw new Error(d.error ?? 'Invalid match code')
       }
       const data: { token: string; match: Match } = await res.json()
+      localStorage.setItem('scorer_token', data.token)
+      localStorage.setItem('scorer_match', JSON.stringify(data.match))
       setMatch(data.match)
       setToken(data.token)
       setStep('connected')
@@ -401,6 +548,8 @@ export default function Connect() {
 
   const handleDisconnect = () => {
     scoreboardWS.disconnect()
+    localStorage.removeItem('scorer_token')
+    localStorage.removeItem('scorer_match')
     setStep('form'); setMatch(null); setToken(''); setCode('')
   }
 

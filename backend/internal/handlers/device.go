@@ -47,6 +47,38 @@ func NewDeviceHandler(hub *ws_pkg.Hub, matchRepo *repository.MatchRepo, secret s
 	return h
 }
 
+// RefreshToken refreshes an expired or expiring device token
+func (h *DeviceHandler) RefreshToken(c *gin.Context) {
+	var req struct {
+		Token string `json:"token" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "token required"})
+		return
+	}
+
+	claims, err := auth.ValidateToken(req.Token, h.jwtSecret)
+	if err != nil && err.Error() != "token is expired" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+		return
+	}
+
+	// Allow refresh for expired tokens as long as other claims are valid
+	if claims == nil || claims.MatchID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid device token"})
+		return
+	}
+
+	// Generate new token with same claims
+	newToken, err := auth.GenerateDeviceToken(claims.MatchID, claims.DeviceName, h.jwtSecret)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "token generation failed"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"token": newToken})
+}
+
 // Connect — pair a scorer device using a 4-digit match code
 func (h *DeviceHandler) Connect(c *gin.Context) {
 	var req models.ConnectRequest

@@ -5,9 +5,10 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 import { useMatchStore } from '@/store/matchStore'
 import { useAuthStore } from '@/store/authStore'
 import { useToastStore } from '@/store/toastStore'
-import { getMatch, listEvents, startMatch, endMatch, startTimer, pauseTimer, endTimeout, updateMatchStatus, deleteMatch } from '@/services/api'
+import { getMatch, listEvents, startMatch, endMatch, startTimer, pauseTimer, endTimeout, updateMatchStatus, deleteMatch, createEvent } from '@/services/api'
 import { TimeoutModal } from '@/components/admin/TimeoutModal'
 import { SubstitutionModal } from '@/components/admin/SubstitutionModal'
+import { Modal } from '@/components/common/Modal'
 import { EventHistory } from '@/components/admin/EventHistory'
 import { PageLoader } from '@/components/common/LoadingSpinner'
 import { useNavigate } from 'react-router-dom'
@@ -32,6 +33,7 @@ export default function MatchControl() {
   const [loading, setLoading]         = useState(true)
   const [timeoutOpen, setTimeoutOpen] = useState(false)
   const [subOpen, setSubOpen]         = useState(false)
+  const [winnerModalOpen, setWinnerModalOpen] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [btnStates, setBtnStates]     = useState<Record<string, BtnState>>({})
   const toast = useToastStore()
@@ -294,7 +296,7 @@ export default function MatchControl() {
             )}
             {(isActive || isTimeout) && isSuperAdmin && (
               <ControlBtn variant="danger" icon={<Square size={15} />} label="End Match" btnKey="end"
-                onClick={() => fire(() => endMatch(id!), 'end', { loading: 'Ending match…', success: 'Match ended' })} />
+                onClick={() => setWinnerModalOpen(true)} />
             )}
             {isActive && !s.timer_running && (
               <ControlBtn variant="secondary" icon={<Timer size={15} />} label="Start Timer" btnKey="timer-start"
@@ -350,6 +352,60 @@ export default function MatchControl() {
 
       <TimeoutModal open={timeoutOpen} onClose={() => setTimeoutOpen(false)} matchId={id!} teamA={m.team_a} teamB={m.team_b} />
       <SubstitutionModal open={subOpen} onClose={() => setSubOpen(false)} matchId={id!} teamA={m.team_a} teamB={m.team_b} />
+      {m && (
+        <Modal
+          open={winnerModalOpen}
+          onClose={() => setWinnerModalOpen(false)}
+          title="Select Winner"
+          size="sm"
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-dark-300">
+              Choose the winner to finalize the match on the scoreboard.
+            </p>
+            <div className="grid grid-cols-1 gap-2.5">
+              <button
+                onClick={() => {
+                  setWinnerModalOpen(false)
+                  fire(() => createEvent(id!, 'match_end', { winner: 'A' }), 'end', { loading: 'Ending match…', success: 'Match ended' })
+                }}
+                className="w-full py-3 px-4 rounded-xl border border-dark-600 hover:border-brand-500 bg-dark-750 hover:bg-brand-900/10 font-bold transition-all text-left flex items-center justify-between text-white"
+              >
+                <span style={{ color: m.team_a_color }}>{m.team_a}</span>
+                <span className="text-xs bg-brand-500/20 text-brand-300 px-2 py-0.5 rounded font-black font-score">Score: {s?.score_a}</span>
+              </button>
+              <button
+                onClick={() => {
+                  setWinnerModalOpen(false)
+                  fire(() => createEvent(id!, 'match_end', { winner: 'B' }), 'end', { loading: 'Ending match…', success: 'Match ended' })
+                }}
+                className="w-full py-3 px-4 rounded-xl border border-dark-600 hover:border-brand-500 bg-dark-750 hover:bg-brand-900/10 font-bold transition-all text-left flex items-center justify-between text-white"
+              >
+                <span style={{ color: m.team_b_color }}>{m.team_b}</span>
+                <span className="text-xs bg-brand-500/20 text-brand-300 px-2 py-0.5 rounded font-black font-score">Score: {s?.score_b}</span>
+              </button>
+              <button
+                onClick={() => {
+                  setWinnerModalOpen(false)
+                  fire(() => createEvent(id!, 'match_end', { winner: 'draw' }), 'end', { loading: 'Ending match…', success: 'Match ended' })
+                }}
+                className="w-full py-3 px-4 rounded-xl border border-dark-600 hover:border-dark-400 bg-dark-750 hover:bg-dark-700/50 font-bold text-white transition-all text-left flex items-center justify-between"
+              >
+                <span>Tie / Draw</span>
+                <span className="text-xs bg-dark-800 text-dark-400 px-2 py-0.5 rounded">Scores Equal</span>
+              </button>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setWinnerModalOpen(false)}
+                className="px-4 py-2 rounded-lg text-sm font-semibold text-dark-300 hover:bg-dark-700 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Delete confirm */}
       {deleteConfirm && (

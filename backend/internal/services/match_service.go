@@ -71,6 +71,15 @@ func (s *MatchService) applyEventSideEffects(matchID string, ev *models.Event) e
 		return s.matchRepo.UpdateStatus(matchID, "timeout")
 	case models.EventTimeoutEnd:
 		return s.matchRepo.UpdateStatus(matchID, "active")
+	case models.EventSubstitution:
+		var sub models.SubstitutionPayload
+		if err := json.Unmarshal(ev.Payload, &sub); err != nil {
+			return err
+		}
+		if err := s.matchRepo.UpdatePlayerStatus(matchID, sub.Team, sub.PlayerOut, "sub"); err != nil {
+			return err
+		}
+		return s.matchRepo.UpdatePlayerStatus(matchID, sub.Team, sub.PlayerIn, "playing")
 	}
 	return nil
 }

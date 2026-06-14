@@ -41,8 +41,15 @@ func (h *UploadHandler) UploadPlayerPhoto(c *gin.Context) {
 
 	filename := uuid.New().String() + ext
 	savePath := filepath.Join(h.uploadDir, "players", filename)
+	
+	// Ensure directory exists
+	if err := os.MkdirAll(filepath.Dir(savePath), 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create directory"})
+		return
+	}
+	
 	if err := c.SaveUploadedFile(file, savePath); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "save failed"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "save failed: " + err.Error()})
 		return
 	}
 
@@ -70,8 +77,15 @@ func (h *UploadHandler) UploadTeamLogo(c *gin.Context) {
 
 	filename := uuid.New().String() + ext
 	savePath := filepath.Join(h.uploadDir, "logos", filename)
+	
+	// Ensure directory exists
+	if err := os.MkdirAll(filepath.Dir(savePath), 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create directory"})
+		return
+	}
+	
 	if err := c.SaveUploadedFile(file, savePath); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "save failed"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "save failed: " + err.Error()})
 		return
 	}
 

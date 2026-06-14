@@ -57,6 +57,7 @@ export interface MatchState {
   timer_seconds: number
   timer_running: boolean
   current_timeout?: TimeoutPayload
+  winner?: string
 }
 
 export type EventType =

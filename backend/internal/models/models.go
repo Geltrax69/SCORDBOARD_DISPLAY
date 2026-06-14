@@ -151,10 +151,26 @@ type MatchState struct {
 	TimerSeconds   int             `json:"timer_seconds"`
 	TimerRunning   bool            `json:"timer_running"`
 	CurrentTimeout *TimeoutPayload `json:"current_timeout,omitempty"`
+	Winner         string          `json:"winner,omitempty"`
 }
 
 func CalculateState(events []Event) MatchState {
 	state := MatchState{Status: "pending"}
+
+	// Authoritative timer: derive elapsed seconds from event timestamps so every
+	// client (display, phone, admin) sees the same clock without it resetting on
+	// each score/timeout. accumulated holds completed running intervals; lastStart
+	// marks an interval still in progress. Source of truth is the event log, so
+	// the timer also survives a backend restart.
+	var accumulated float64
+	var lastStart *time.Time
+	stopTimer := func(at time.Time) {
+		if lastStart != nil {
+			accumulated += at.Sub(*lastStart).Seconds()
+			lastStart = nil
+		}
+	}
+
 	for _, e := range events {
 		if e.Undone {
 			continue
@@ -189,22 +205,42 @@ func CalculateState(events []Event) MatchState {
 		case EventMatchEnd:
 			state.Status = "completed"
 			state.TimerRunning = false
+			stopTimer(e.CreatedAt)
+			var p struct {
+				Winner string `json:"winner"`
+			}
+			if err := json.Unmarshal(e.Payload, &p); err == nil {
+				state.Winner = p.Winner
+			}
 		case EventTimerStart:
 			state.TimerRunning = true
+			if lastStart == nil {
+				t := e.CreatedAt
+				lastStart = &t
+			}
 		case EventTimerPause:
 			state.TimerRunning = false
+			stopTimer(e.CreatedAt)
 		case EventTimeoutStart:
 			var p TimeoutPayload
 			if err := json.Unmarshal(e.Payload, &p); err == nil {
 				state.CurrentTimeout = &p
 				state.Status = "timeout"
 				state.TimerRunning = false
+				stopTimer(e.CreatedAt)
 			}
 		case EventTimeoutEnd:
 			state.CurrentTimeout = nil
 			state.Status = "active"
 		}
 	}
+
+	// If a running interval is still open, count up to "now".
+	if lastStart != nil {
+		accumulated += time.Since(*lastStart).Seconds()
+	}
+	state.TimerSeconds = int(accumulated)
+
 	return state
 }
 

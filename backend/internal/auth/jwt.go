@@ -54,6 +54,12 @@ func ValidateToken(tokenStr, secret string) (*Claims, error) {
 		return []byte(secret), nil
 	})
 	if err != nil {
+		// Return claims even if expired (for token refresh purposes)
+		if errors.Is(err, jwt.ErrTokenExpired) {
+			if claims, ok := token.Claims.(*Claims); ok && claims != nil {
+				return claims, jwt.ErrTokenExpired
+			}
+		}
 		return nil, err
 	}
 	claims, ok := token.Claims.(*Claims)

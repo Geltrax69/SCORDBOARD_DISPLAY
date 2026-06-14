@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo, useLayoutEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { gsap } from 'gsap'
 import { scoreboardWS } from '@/services/websocket'
@@ -16,10 +16,10 @@ import type {
   SubstitutionPayload, AnnouncementPayload, Player,
 } from '@/types'
 import { clsx } from 'clsx'
-import { Wifi, WifiOff } from 'lucide-react'
+import { Wifi, WifiOff, Trophy } from 'lucide-react'
 
 const WS_BASE =
-  window.location.protocol === 'https:' ? 'wss://' : 'ws://' + window.location.host
+  (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host
 const API_BASE = import.meta.env.VITE_API_URL ?? '/api'
 
 interface LiveMatch { match: Match; state: MatchState }
@@ -95,17 +95,6 @@ export default function Display() {
     init()
   }, [])
 
-  // ── WS connection ─────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!token) return
-    const path = singleMatchId ? `/ws/match/${singleMatchId}` : '/ws/global'
-    const url = `${WS_BASE}${path}?token=${encodeURIComponent(token)}`
-    scoreboardWS.connect(url, setWsStatus)
-
-    const unsub = scoreboardWS.subscribe((msg: WSMessage) => handleWS(msg))
-    return () => { unsub() }
-  }, [token, singleMatchId])
-
   // ── WS message handler ────────────────────────────────────────────────────
   const handleWS = useCallback((msg: WSMessage) => {
     const { type, match_id, payload } = msg
@@ -175,6 +164,44 @@ export default function Display() {
       }
     }
   }, [players, liveMatches])
+
+  const handleWSRef = useRef(handleWS)
+  useEffect(() => {
+    handleWSRef.current = handleWS
+  })
+
+  // ── Local Timer Ticking ───────────────────────────────────────────────────
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setLiveMatches((prev) => {
+        let changed = false
+        const next = { ...prev }
+        for (const id in next) {
+          const m = next[id]
+          if (m?.state?.timer_running) {
+            next[id] = {
+              ...m,
+              state: { ...m.state, timer_seconds: (m.state.timer_seconds ?? 0) + 1 }
+            }
+            changed = true
+          }
+        }
+        return changed ? next : prev
+      })
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // ── WS connection ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!token) return
+    const path = singleMatchId ? `/ws/match/${singleMatchId}` : '/ws/global'
+    const url = `${WS_BASE}${path}?token=${encodeURIComponent(token)}`
+    scoreboardWS.connect(url, setWsStatus)
+
+    const unsub = scoreboardWS.subscribe((msg: WSMessage) => handleWSRef.current(msg))
+    return () => { unsub(); scoreboardWS.disconnect() }
+  }, [token, singleMatchId])
 
   // ── GSAP layout transition ────────────────────────────────────────────────
   const animateLayoutChange = (callback: () => void) => {
@@ -391,297 +418,638 @@ function CountdownOverlay({ match: m, onDone }: { match: Match; onDone: () => vo
 
 // ── Pre-match intro — shown when status === 'pending' ────────────────────────
 function PreMatchIntro({ m, players }: { m: Match; players: Player[] }) {
-  const ref     = useRef<HTMLDivElement>(null)
+  const ref = useRef<HTMLDivElement>(null)
+  const logosSceneRef = useRef<HTMLDivElement>(null)
+  const playerSceneRef = useRef<HTMLDivElement>(null)
+  const logoARef = useRef<HTMLDivElement>(null)
+  const logoBRef = useRef<HTMLDivElement>(null)
+  const vsRef = useRef<HTMLDivElement>(null)
+  const topBarRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
-  const spotIdxRef = useRef(0)
+  const nameRef = useRef<HTMLDivElement>(null)
+  const metaRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const photoRef = useRef<HTMLImageElement>(null)
+
+  const [playerPhase, setPlayerPhase] = useState(false)
   const [spotIdx, setSpotIdx] = useState(0)
+  const [maskFrame, setMaskFrame] = useState<number | null>(null)
 
   const playersA  = players.filter((p) => p.team === 'A')
   const playersB  = players.filter((p) => p.team === 'B')
   const allPlayers = [...playersA, ...playersB]
+  const spotlight = allPlayers[spotIdx]
 
-  // ── Looping background + logo animations ─────────────────────────────────
+  const spotColor = spotlight ? (spotlight.team === 'A' ? m.team_a_color : m.team_b_color) : m.team_a_color
+  const spotTeam = spotlight ? (spotlight.team === 'A' ? m.team_a : m.team_b) : m.team_a
+  const spotLogo = spotlight ? (spotlight.team === 'A' ? m.team_a_logo : m.team_b_logo) : undefined
+  const spotStatus = spotlight ? (spotlight.status === 'sub' ? 'SUB' : 'PLAYER') : 'PLAYER'
+
+  const nextIndex = (from: number) => (from + 1) % Math.max(allPlayers.length, 1)
+
+  // Stable random particle generation to avoid jumping on re-renders
+  const particles = useMemo(() => {
+    return Array.from({ length: 25 }).map((_, i) => ({
+      size: Math.random() * 4 + 2,
+      left: Math.random() * 100,
+      delay: Math.random() * 10,
+      duration: Math.random() * 8 + 8,
+      opacity: Math.random() * 0.4 + 0.2,
+    }))
+  }, [])
+
+  // Keep spotColorRef up to date for continuous canvas animation
+  const spotColorRef = useRef(spotColor)
+  useEffect(() => {
+    spotColorRef.current = spotColor
+  }, [spotColor])
+
+
+
+
+
+  // Canvas Particle Vortex Animation (sized to full screen window)
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    let animationFrameId: number
+    let width = (canvas.width = window.innerWidth)
+    let height = (canvas.height = window.innerHeight)
+
+    const handleResize = () => {
+      if (!canvas) return
+      width = canvas.width = window.innerWidth
+      height = canvas.height = window.innerHeight
+    }
+    window.addEventListener('resize', handleResize)
+
+    class Particle {
+      x: number
+      y: number
+      speedX: number
+      speedY: number
+      size: number
+      opacity: number
+      color: string
+      angle: number
+
+      constructor(canvasWidth: number, canvasHeight: number) {
+        this.x = Math.random() * canvasWidth
+        this.y = Math.random() * canvasHeight
+        this.speedX = Math.random() * 0.3 - 0.15
+        this.speedY = Math.random() * 0.3 - 0.15
+        this.size = Math.random() * 1.5 + 0.3
+        this.opacity = Math.random() * 0.20 + 0.05
+        this.color = Math.random() > 0.4 ? 'spot' : 'white'
+        this.angle = Math.random() * Math.PI * 2
+      }
+
+      update(w: number, h: number) {
+        this.x += this.speedX + Math.sin(this.angle) * 0.08
+        this.y += this.speedY + Math.cos(this.angle) * 0.08
+        this.angle += 0.005
+
+        if (this.x < 0) this.x = w
+        if (this.x > w) this.x = 0
+        if (this.y < 0) this.y = h
+        if (this.y > h) this.y = 0
+      }
+
+      draw(context: CanvasRenderingContext2D, colorHex: string) {
+        context.beginPath()
+        context.arc(this.x, this.y, this.size, 0, Math.PI * 2)
+        const rgb = hexToRgb(colorHex)
+        context.fillStyle = this.color === 'spot' 
+          ? `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${this.opacity})` 
+          : `rgba(255, 255, 255, ${this.opacity * 0.35})`
+        context.fill()
+      }
+    }
+
+    function hexToRgb(hex: string) {
+      const shorthandRegex = /^#?([a-f\d])([a-f\d])([a-f\d])$/i
+      const fullHex = hex.replace(shorthandRegex, (_, r, g, b) => r + r + g + g + b + b)
+      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(fullHex)
+      return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+      } : { r: 255, g: 255, b: 255 }
+    }
+
+    const particlesList = Array.from({ length: 130 }, () => new Particle(width, height))
+
+    const render = () => {
+      // Clear with trailing alpha for particle sweeps
+      ctx.fillStyle = 'rgba(2, 5, 10, 0.08)'
+      ctx.fillRect(0, 0, width, height)
+
+      particlesList.forEach(p => {
+        p.update(width, height)
+        p.draw(ctx, spotColorRef.current)
+      })
+
+      animationFrameId = requestAnimationFrame(render)
+    }
+
+    render()
+
+    return () => {
+      cancelAnimationFrame(animationFrameId)
+      window.removeEventListener('resize', handleResize)
+    }
+  }, [playerPhase])
+
+  // ── Sequence: logos first, then full-screen player intro ────────────────
   useEffect(() => {
     const el = ref.current
-    if (!el) return
+    if (!el || !logosSceneRef.current || !playerSceneRef.current) return
+
     const ctx = gsap.context(() => {
+      gsap.set(playerSceneRef.current, { autoAlpha: 0 })
+      gsap.set(logosSceneRef.current, { autoAlpha: 1 })
 
-      // 1. Entrance — elements fly in once
-      const entrance = gsap.timeline({ defaults: { ease: 'power3.out' } })
-      entrance
-        .fromTo('.pi-header', { opacity: 0, y: -32 }, { opacity: 1, y: 0, duration: 0.7 })
-        .fromTo('.pi-team-a', { opacity: 0, x: -100 }, { opacity: 1, x: 0, duration: 0.65 }, '-=0.4')
-        .fromTo('.pi-team-b', { opacity: 0, x: 100 },  { opacity: 1, x: 0, duration: 0.65 }, '<')
-        .fromTo('.pi-vs',    { opacity: 0, scale: 2.2 }, { opacity: 1, scale: 1, duration: 0.6, ease: 'back.out(1.7)' }, '-=0.3')
+      const intro = gsap.timeline({ defaults: { ease: 'power3.out' } })
+      intro
+        .fromTo('.pi-ls-badge', { opacity: 0, y: -18 }, { opacity: 1, y: 0, duration: 0.45 })
+        .fromTo([logoARef.current, logoBRef.current],
+          { opacity: 0, scale: 0.68, y: 26 },
+          { opacity: 1, scale: 1, y: 0, duration: 0.7, stagger: 0.14 },
+          '-=0.1',
+        )
+        .fromTo(vsRef.current,
+          { opacity: 0, scale: 0.35, rotation: -14 },
+          { opacity: 1, scale: 1, rotation: 0, duration: 0.5, ease: 'back.out(1.8)' },
+          '-=0.35',
+        )
+        .to([logoARef.current, logoBRef.current], {
+          y: -10,
+          duration: 1.2,
+          yoyo: true,
+          repeat: 1,
+          ease: 'sine.inOut',
+          stagger: 0.15,
+        })
+        .to(logosSceneRef.current, { autoAlpha: 0, duration: 0.45, ease: 'power2.in' }, '+=0.1')
+        .set(playerSceneRef.current, { autoAlpha: 1 })
+        .fromTo(playerSceneRef.current, { opacity: 0, scale: 1.02 }, { opacity: 1, scale: 1, duration: 0.55, ease: 'power2.out' })
+        .fromTo(topBarRef.current, { opacity: 0, y: -24 }, { opacity: 1, y: 0, duration: 0.45 }, '-=0.3')
+        .call(() => {
+          const maskObj = { frame: 0 }
+          setMaskFrame(0)
+          gsap.to(maskObj, {
+            frame: 29,
+            duration: 0.6,
+            ease: 'steps(29)',
+            onUpdate: () => setMaskFrame(Math.round(maskObj.frame)),
+            onComplete: () => {
+              setMaskFrame(null)
+              setPlayerPhase(true) // Ensure playerPhase only triggers AFTER mask reveal completes
+            }
+          })
+        }, undefined, '-=0.2')
 
-      // 2. Logo breathe (staggered so A and B are out of phase)
-      gsap.to('.pi-logo-a', { scale: 1.08, duration: 2.8, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 1 })
-      gsap.to('.pi-logo-b', { scale: 1.08, duration: 2.8, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 2.4 })
-
-      // 3. Background color blobs pulse
-      gsap.to('.pi-glow-a', { opacity: 0.55, scale: 1.25, duration: 3.2, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 0.5 })
-      gsap.to('.pi-glow-b', { opacity: 0.55, scale: 1.25, duration: 3.2, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 1.8 })
-
-      // 4. VS text shimmer pulse
-      gsap.to('.pi-vs-text', { opacity: 0.3, scale: 1.04, duration: 2, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 1.2 })
-
-      // 5. Horizontal light beam sweep (inspired by frame 010 — blue energy beam)
+      // Ambient loops across the whole intro screen
+      gsap.to('.pi-glow-a', { opacity: 0.5, scale: 1.22, duration: 3.2, repeat: -1, yoyo: true, ease: 'sine.inOut' })
+      gsap.to('.pi-glow-b', { opacity: 0.5, scale: 1.22, duration: 3.2, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 1.1 })
       gsap.fromTo('.pi-beam',
-        { xPercent: -160, opacity: 1 },
-        { xPercent: 220, opacity: 0.4, duration: 1.6, ease: 'power2.inOut', repeat: -1, repeatDelay: 5, delay: 2 }
+        { xPercent: -160, opacity: 0.9 },
+        { xPercent: 220, opacity: 0.2, duration: 1.4, ease: 'power2.inOut', repeat: -1, repeatDelay: 4.2, delay: 1.6 },
       )
-
-      // 6. Second, thinner beam with delay offset
       gsap.fromTo('.pi-beam2',
-        { xPercent: -160, opacity: 0.6 },
-        { xPercent: 220, opacity: 0, duration: 1.2, ease: 'power1.inOut', repeat: -1, repeatDelay: 5, delay: 4.5 }
+        { xPercent: -170, opacity: 0.4 },
+        { xPercent: 220, opacity: 0, duration: 1.2, ease: 'power1.inOut', repeat: -1, repeatDelay: 4.6, delay: 2.8 },
       )
-
-      // 7. Header amber dots staggered pulse
-      gsap.to('.pi-dot', {
-        opacity: 0.25, duration: 0.7, repeat: -1, yoyo: true, ease: 'sine.inOut', stagger: 0.35, delay: 1,
-      })
-
-      // 8. "MATCH STARTING SOON" text slow opacity flicker
-      gsap.to('.pi-soon-text', {
-        opacity: 0.65, duration: 1.4, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 0.5,
-      })
-
-      // 9. Team name glow oscillation
-      gsap.to('.pi-name-a', { filter: `drop-shadow(0 0 28px ${m.team_a_color}cc)`, duration: 2.5, repeat: -1, yoyo: true, ease: 'sine.inOut' })
-      gsap.to('.pi-name-b', { filter: `drop-shadow(0 0 28px ${m.team_b_color}cc)`, duration: 2.5, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 1.3 })
-
-      // 10. Bottom colour bar shimmer
-      gsap.to('.pi-bar', { opacity: 0.4, duration: 1.8, repeat: -1, yoyo: true, ease: 'sine.inOut' })
-
+      gsap.to('.pi-bar', { opacity: 0.45, duration: 1.8, repeat: -1, yoyo: true, ease: 'sine.inOut' })
     }, el)
-    return () => ctx.revert()
+
+    return () => {
+      setPlayerPhase(false)
+      ctx.revert()
+    }
   }, [m.id])
 
-
-  // ── Player spotlight cycling ─────────────────────────────────────────────
+  // ── Player spotlight cycling after the logo opener ──────────────────────
   useEffect(() => {
-    if (allPlayers.length < 2) return
+    if (!playerPhase || allPlayers.length < 2) return
+
     const id = setInterval(() => {
-      const next = (spotIdxRef.current + 1) % allPlayers.length
-      if (cardRef.current) {
-        gsap.to(cardRef.current, {
-          opacity: 0, x: -50, duration: 0.35, ease: 'power2.in',
-          onComplete: () => { spotIdxRef.current = next; setSpotIdx(next) },
-        })
-      } else {
-        spotIdxRef.current = next; setSpotIdx(next)
-      }
-    }, 3800)
+      const next = nextIndex(spotIdx)
+      
+      // 1. Subtle, premium slide-out before swapping spotlight
+      const tl = gsap.timeline({
+        onComplete: () => {
+          setSpotIdx(next)
+        }
+      })
+      
+      tl.to(cardRef.current, { opacity: 0, x: -30, scale: 0.98, duration: 0.35, ease: 'power2.in' })
+        .to([nameRef.current, metaRef.current, '.pi-watermark', '.pi-stroke'], { 
+          opacity: 0, 
+          y: 15, 
+          duration: 0.25, 
+          ease: 'power2.in', 
+          stagger: 0.04 
+        }, 0)
+
+    }, 5000)
+
     return () => clearInterval(id)
-  }, [allPlayers.length])
+  }, [allPlayers.length, playerPhase, spotIdx])
 
-  // Animate in whenever card content changes
-  useEffect(() => {
-    if (!cardRef.current || allPlayers.length === 0) return
-    gsap.fromTo(cardRef.current,
-      { opacity: 0, x: 60 },
-      { opacity: 1, x: 0, duration: 0.5, ease: 'power3.out' }
-    )
-  }, [spotIdx])
+  // Synchronous Layout Effect prevents flash/flicker of the next player before reset
+  useLayoutEffect(() => {
+    if (!playerPhase || !ref.current || !cardRef.current || allPlayers.length === 0) return
 
-  const spotlight   = allPlayers[spotIdx]
-  const spotColor   = spotlight?.team === 'A' ? m.team_a_color : m.team_b_color
-  const spotTeam    = spotlight?.team === 'A' ? m.team_a : m.team_b
+    const ctx = gsap.context(() => {
+      // Reset initial states for slide-in reveal
+      gsap.set(cardRef.current, { opacity: 0, x: 30, scale: 0.98 })
+      gsap.set('.pi-watermark', { opacity: 0, x: 30 })
+      gsap.set('.pi-stroke', { scaleX: 0, opacity: 0, y: 0 })
+      gsap.set(nameRef.current, { opacity: 0, y: -15, filter: 'blur(6px)' })
+      gsap.set(metaRef.current, { opacity: 0, y: 15 })
+      gsap.set('.pi-photo', { opacity: 0, scale: 0.96 })
+
+      // Animate Card in
+      gsap.to(cardRef.current,
+        { opacity: 1, x: 0, scale: 1, duration: 0.5, ease: 'power3.out' }
+      )
+
+      gsap.to('.pi-watermark',
+        { opacity: 0.1, x: 0, duration: 0.6, ease: 'power3.out' }
+      )
+
+      gsap.to('.pi-stroke',
+        { scaleX: 1, opacity: 1, duration: 0.45, ease: 'power3.out', stagger: 0.08, delay: 0.08 }
+      )
+
+      gsap.to(nameRef.current,
+        { opacity: 1, y: 0, filter: 'blur(0px)', duration: 0.48, ease: 'power3.out', delay: 0.15 }
+      )
+
+      gsap.to(metaRef.current,
+        { opacity: 1, y: 0, duration: 0.4, ease: 'power3.out', delay: 0.22 }
+      )
+
+      // Directly trigger fade-in if the image is already cached/complete
+      if (photoRef.current && photoRef.current.complete) {
+        gsap.to(photoRef.current, { scale: 1, opacity: 1, duration: 0.55, ease: 'power3.out' })
+      }
+    }, ref.current)
+
+    return () => ctx.revert()
+  }, [allPlayers.length, playerPhase, spotIdx])
+
+
 
   return (
-    <div ref={ref} className="flex-1 flex flex-col relative overflow-hidden" style={{ background: '#03070d' }}>
+    <div ref={ref} className="flex-1 flex flex-col relative overflow-hidden" style={{ background: '#02050a' }}>
+
+      {/* Inline styles for custom animations */}
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@800;900&display=swap');
+        @keyframes floatUpParticles {
+          0% { transform: translateY(0) scale(1); opacity: 0; }
+          10% { opacity: 0.5; }
+          90% { opacity: 0.5; }
+          100% { transform: translateY(-100vh) scale(0.5); opacity: 0; }
+        }
+        .animate-particle {
+          animation: floatUpParticles linear infinite;
+        }
+        .text-stroke {
+          -webkit-text-stroke: 1px rgba(255,255,255,0.06);
+          color: transparent;
+        }
+        .distressed-title {
+          text-shadow: 0 4px 20px rgba(0,0,0,0.8), 0 0 40px rgba(255,255,255,0.1);
+          font-family: 'Outfit', 'Inter', sans-serif;
+          font-weight: 900;
+          letter-spacing: -0.02em;
+        }
+        .glow-border {
+          box-shadow: 0 0 30px rgba(0,0,0,0.6), inset 0 0 20px rgba(255,255,255,0.02);
+        }
+        .bg-grain {
+          background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+          opacity: 0.02;
+          mix-blend-mode: overlay;
+        }
+      `}</style>
+
+      {/* Grain noise overlay */}
+      <div className="absolute inset-0 bg-grain pointer-events-none z-10" />
+
+      {/* Canvas Particle Vortex */}
+      <canvas 
+        ref={canvasRef} 
+        className="absolute inset-0 w-full h-full pointer-events-none z-10" 
+        style={{ mixBlendMode: 'screen', width: '100%', height: '100%' }} 
+      />
+
+      {/* Stable Floating particles */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-40 z-10">
+        {particles.map((p, i) => (
+          <div
+            key={i}
+            className="absolute rounded-full animate-particle"
+            style={{
+              width: `${p.size}px`,
+              height: `${p.size}px`,
+              left: `${p.left}%`,
+              bottom: '-20px',
+              animationDelay: `${p.delay}s`,
+              animationDuration: `${p.duration}s`,
+              background: spotColor,
+              opacity: p.opacity,
+            }}
+          />
+        ))}
+      </div>
 
       {/* ── Light beams (broadcast-style sweep) ── */}
-      <div className="pi-beam absolute inset-y-0 w-20 pointer-events-none z-30"
-        style={{ background: 'linear-gradient(90deg, transparent, rgba(120,200,255,0.09) 40%, rgba(180,230,255,0.18) 50%, rgba(120,200,255,0.09) 60%, transparent)', left: 0 }} />
-      <div className="pi-beam2 absolute inset-y-0 w-10 pointer-events-none z-30"
-        style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.07) 50%, transparent)', left: 0 }} />
+      <div className="pi-beam absolute inset-y-0 w-32 pointer-events-none z-30"
+        style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.04) 40%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 60%, transparent)', left: 0 }} />
+      <div className="pi-beam2 absolute inset-y-0 w-16 pointer-events-none z-30"
+        style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.03) 50%, transparent)', left: 0 }} />
 
       {/* ── Background colour blobs ── */}
       <div className="pi-glow-a absolute pointer-events-none" style={{
-        left: '-10%', top: '5%', width: '55%', height: '90%', opacity: 0.22,
+        left: '-10%', top: '5%', width: '55%', height: '90%', opacity: 0.25,
         background: `radial-gradient(ellipse at 30% 50%, ${m.team_a_color}35 0%, transparent 65%)`,
       }} />
       <div className="pi-glow-b absolute pointer-events-none" style={{
-        right: '-10%', top: '5%', width: '55%', height: '90%', opacity: 0.22,
+        right: '-10%', top: '5%', width: '55%', height: '90%', opacity: 0.25,
         background: `radial-gradient(ellipse at 70% 50%, ${m.team_b_color}35 0%, transparent 65%)`,
       }} />
 
       {/* ── Subtle grid overlay ── */}
-      <div className="absolute inset-0 pointer-events-none opacity-[0.025]"
-        style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.3) 1px, transparent 1px)', backgroundSize: '60px 60px' }} />
+      <div className="absolute inset-0 pointer-events-none opacity-[0.03]"
+        style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.2) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.2) 1px, transparent 1px)', backgroundSize: '50px 50px' }} />
 
       {/* ── Bottom colour bar ── */}
-      <div className="pi-bar absolute bottom-0 left-0 right-0 h-[3px] z-10"
+      <div className="pi-bar absolute bottom-0 left-0 right-0 h-[4px] z-10"
         style={{ background: `linear-gradient(90deg, ${m.team_a_color}, transparent 50%, ${m.team_b_color})`, opacity: 0.8 }} />
 
-      {/* ── Header ── */}
-      <div className="pi-header flex-shrink-0 flex items-center justify-between px-14 pt-8 pb-0 relative z-10">
-        <p className="text-white/20 text-xs uppercase tracking-[0.4em] font-bold">{m.tournament_name || ''}</p>
-        <div className="flex items-center gap-3">
-          <span className="pi-dot h-2 w-2 rounded-full bg-amber-400" />
-          <span className="pi-soon-text text-amber-400 text-sm font-black uppercase tracking-[0.3em]">Match Starting Soon</span>
-          <span className="pi-dot h-2 w-2 rounded-full bg-amber-400" />
+      {/* ── Scene 1: Logo opener (full screen) ── */}
+      <div ref={logosSceneRef} className="absolute inset-0 z-20 flex flex-col items-center justify-center px-8">
+        <div className="pi-ls-badge mb-7 flex items-center gap-3 text-amber-400 text-sm font-black uppercase tracking-[0.35em]">
+          <span className="h-2 w-2 rounded-full bg-amber-400" />
+          Match Starting Soon
+          <span className="h-2 w-2 rounded-full bg-amber-400" />
         </div>
-        <p className="text-white/25 text-xs uppercase tracking-[0.3em] font-bold">{m.court_name || ''}</p>
-      </div>
 
-      {/* ── Teams + VS ── */}
-      <div className="flex-1 flex items-center justify-between px-10 relative z-10 gap-4 min-h-0">
-
-        {/* Team A */}
-        <div className="pi-team-a flex-1 flex flex-col items-center gap-4">
-          <div className="pi-logo-a relative flex-shrink-0">
+        <div className="flex items-center justify-center gap-10 sm:gap-20">
+          <div ref={logoARef} className="flex flex-col items-center gap-4">
             {m.team_a_logo ? (
-              <img src={m.team_a_logo} alt="" className="h-32 w-32 object-contain rounded-2xl"
-                style={{ filter: `drop-shadow(0 0 32px ${m.team_a_color}70)` }}
+              <img src={m.team_a_logo} alt="" className="h-28 w-28 sm:h-36 sm:w-36 object-contain rounded-3xl"
+                style={{ filter: `drop-shadow(0 0 34px ${m.team_a_color}90)` }}
                 onError={(e) => (e.currentTarget.style.display = 'none')} />
             ) : (
-              <div className="h-32 w-32 rounded-2xl flex items-center justify-center text-5xl font-black"
-                style={{ background: `${m.team_a_color}1a`, border: `2px solid ${m.team_a_color}50`, color: m.team_a_color, boxShadow: `0 0 40px ${m.team_a_color}25` }}>
+              <div className="h-28 w-28 sm:h-36 sm:w-36 rounded-3xl flex items-center justify-center text-5xl font-black"
+                style={{ background: `${m.team_a_color}1a`, border: `2px solid ${m.team_a_color}60`, color: m.team_a_color }}>
                 {m.team_a.charAt(0)}
               </div>
             )}
-            <div className="absolute inset-0 rounded-2xl pointer-events-none"
-              style={{ boxShadow: `0 0 50px ${m.team_a_color}25, inset 0 0 20px ${m.team_a_color}08` }} />
+            <p className="text-3xl sm:text-5xl font-black uppercase tracking-wider" style={{ color: m.team_a_color, textShadow: '0 4px 10px rgba(0,0,0,0.5)' }}>{m.team_a}</p>
           </div>
-          <p className="pi-name-a font-black uppercase tracking-wider text-center leading-none"
-            style={{ fontSize: 'clamp(1.8rem, 4vw, 4.5rem)', color: m.team_a_color, filter: `drop-shadow(0 0 16px ${m.team_a_color}80)` }}>
-            {m.team_a}
-          </p>
-          <p className="text-white/15 text-xs uppercase tracking-widest font-semibold">
-            {playersA.length > 0 ? `${playersA.length} Players` : ''}
-          </p>
-        </div>
 
-        {/* VS */}
-        <div className="pi-vs flex-shrink-0 flex flex-col items-center">
-          <p className="pi-vs-text font-black leading-none select-none"
-            style={{ fontSize: 'clamp(4rem, 9vw, 10rem)', letterSpacing: '-0.05em', color: 'rgba(255,255,255,0.1)', opacity: 0.18 }}>
-            VS
-          </p>
-        </div>
+          <div ref={vsRef} className="text-[4rem] sm:text-[6rem] font-black text-white/18 leading-none select-none">VS</div>
 
-        {/* Team B */}
-        <div className="pi-team-b flex-1 flex flex-col items-center gap-4">
-          <div className="pi-logo-b relative flex-shrink-0">
+          <div ref={logoBRef} className="flex flex-col items-center gap-4">
             {m.team_b_logo ? (
-              <img src={m.team_b_logo} alt="" className="h-32 w-32 object-contain rounded-2xl"
-                style={{ filter: `drop-shadow(0 0 32px ${m.team_b_color}70)` }}
+              <img src={m.team_b_logo} alt="" className="h-28 w-28 sm:h-36 sm:w-36 object-contain rounded-3xl"
+                style={{ filter: `drop-shadow(0 0 34px ${m.team_b_color}90)` }}
                 onError={(e) => (e.currentTarget.style.display = 'none')} />
             ) : (
-              <div className="h-32 w-32 rounded-2xl flex items-center justify-center text-5xl font-black"
-                style={{ background: `${m.team_b_color}1a`, border: `2px solid ${m.team_b_color}50`, color: m.team_b_color, boxShadow: `0 0 40px ${m.team_b_color}25` }}>
+              <div className="h-28 w-28 sm:h-36 sm:w-36 rounded-3xl flex items-center justify-center text-5xl font-black"
+                style={{ background: `${m.team_b_color}1a`, border: `2px solid ${m.team_b_color}60`, color: m.team_b_color }}>
                 {m.team_b.charAt(0)}
               </div>
             )}
-            <div className="absolute inset-0 rounded-2xl pointer-events-none"
-              style={{ boxShadow: `0 0 50px ${m.team_b_color}25, inset 0 0 20px ${m.team_b_color}08` }} />
+            <p className="text-3xl sm:text-5xl font-black uppercase tracking-wider" style={{ color: m.team_b_color, textShadow: '0 4px 10px rgba(0,0,0,0.5)' }}>{m.team_b}</p>
           </div>
-          <p className="pi-name-b font-black uppercase tracking-wider text-center leading-none"
-            style={{ fontSize: 'clamp(1.8rem, 4vw, 4.5rem)', color: m.team_b_color, filter: `drop-shadow(0 0 16px ${m.team_b_color}80)` }}>
-            {m.team_b}
-          </p>
-          <p className="text-white/15 text-xs uppercase tracking-widest font-semibold">
-            {playersB.length > 0 ? `${playersB.length} Players` : ''}
-          </p>
         </div>
       </div>
 
-      {/* ── Player spotlight ── */}
-      {allPlayers.length > 0 && spotlight && (
-        <div className="pi-spotlight-wrap flex-shrink-0 relative z-10 px-12 pb-8">
-
-          {/* Section divider */}
-          <div className="flex items-center gap-4 mb-5">
-            <div className="flex-1 h-px" style={{ background: `linear-gradient(to right, transparent, ${spotColor}50)` }} />
-            <span className="text-white/20 text-[10px] uppercase tracking-[0.5em] font-bold">Player Spotlight</span>
-            <div className="flex-1 h-px" style={{ background: `linear-gradient(to left, transparent, ${spotColor}50)` }} />
-          </div>
-
-          {/* Card */}
-          <div ref={cardRef} className="max-w-2xl mx-auto">
-            <div className="flex items-center gap-6 rounded-2xl overflow-hidden p-4"
-              style={{ background: `linear-gradient(135deg, ${spotColor}10 0%, rgba(255,255,255,0.03) 100%)`, border: `1px solid ${spotColor}25`, boxShadow: `0 0 60px ${spotColor}15` }}>
-
-              {/* Photo or jersey card */}
-              {spotlight.photo_url ? (
-                <div className="relative flex-shrink-0">
-                  <div className="w-24 h-32 rounded-xl overflow-hidden"
-                    style={{ boxShadow: `0 0 30px ${spotColor}50, 0 0 0 2px ${spotColor}35` }}>
-                    <img src={spotlight.photo_url} alt={spotlight.name}
-                      className="w-full h-full object-cover object-top" />
-                  </div>
-                  <div className="absolute -bottom-2 -right-2 w-9 h-9 rounded-full flex items-center justify-center text-xs font-black"
-                    style={{ background: spotColor, color: '#000', boxShadow: `0 0 16px ${spotColor}90` }}>
-                    {spotlight.jersey_number}
-                  </div>
+      {/* ── Scene 2: Full-screen player intro ── */}
+      <div 
+        ref={playerSceneRef} 
+        className="absolute inset-0 z-30 flex flex-col px-14 py-10"
+        style={{
+          mask: maskFrame !== null ? 'url(#circle-reveal-mask)' : 'none',
+          WebkitMask: maskFrame !== null ? 'url(#circle-reveal-mask)' : 'none'
+        }}
+      >
+        {allPlayers.length > 0 && spotlight ? (
+          <div className="h-full flex flex-col justify-between">
+            {/* Top Bar */}
+            <div ref={topBarRef} className="flex-shrink-0 flex items-center justify-between border-b border-white/[0.08] pb-5 relative z-20">
+              <div className="flex items-center gap-4">
+                <div className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl bg-slate-900 border border-white/10 flex items-center justify-center p-1.5 shadow-[0_0_20px_rgba(0,0,0,0.4)]">
+                  {spotLogo ? (
+                    <img src={spotLogo} alt="" className="h-full w-full object-contain" />
+                  ) : (
+                    <span className="text-xl font-black" style={{ color: spotColor }}>{spotTeam.charAt(0)}</span>
+                  )}
                 </div>
-              ) : (
-                <div className="flex-shrink-0 w-24 h-32 rounded-xl flex flex-col items-center justify-center gap-1"
-                  style={{ background: `${spotColor}15`, border: `2px solid ${spotColor}40`, boxShadow: `0 0 30px ${spotColor}25` }}>
-                  <span className="text-3xl font-black tabular-nums leading-none" style={{ color: spotColor }}>
-                    #{spotlight.jersey_number}
-                  </span>
-                </div>
-              )}
-
-              {/* Info */}
-              <div className="flex-1 min-w-0 space-y-2">
-                <p className="text-white/35 text-[10px] uppercase tracking-[0.5em] font-bold">{spotTeam}</p>
-                <p className="font-black uppercase text-white leading-tight truncate"
-                  style={{ fontSize: 'clamp(1.5rem, 3vw, 3rem)', filter: `drop-shadow(0 0 20px ${spotColor}70)` }}>
-                  {spotlight.name}
-                </p>
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <span className="px-3 py-1 rounded-full text-xs font-black uppercase"
-                    style={{ background: `${spotColor}25`, color: spotColor, border: `1px solid ${spotColor}45` }}>
-                    #{spotlight.jersey_number}
-                  </span>
-                  <span className={`px-3 py-1 rounded-full text-xs font-black uppercase ${
-                    spotlight.status === 'sub'
-                      ? 'text-white/30 bg-white/5 border border-white/10'
-                      : 'text-emerald-400 bg-emerald-900/40 border border-emerald-500/30'
-                  }`}>
-                    {spotlight.status === 'sub' ? 'SUBSTITUTE' : 'STARTER'}
-                  </span>
-                  <span className="text-white/20 text-xs font-bold uppercase tracking-widest">
-                    {spotlight.team === 'A' ? m.team_a : m.team_b}
-                  </span>
-                </div>
+                <span className="text-2xl sm:text-3xl font-black uppercase tracking-wider" style={{ color: spotColor, textShadow: `0 0 20px ${spotColor}30` }}>
+                  {spotTeam}
+                </span>
+              </div>
+              <div className="text-white/50 text-xs sm:text-sm font-black uppercase tracking-[0.3em]">
+                TOGETHER. STRONGER. <span style={{ color: spotColor }}>{spotTeam}</span>.
               </div>
             </div>
-          </div>
 
-          {/* Progress dots */}
-          {allPlayers.length > 1 && (
-            <div className="flex justify-center gap-1.5 mt-4">
-              {allPlayers.map((pl, i) => (
-                <div key={i} className="rounded-full transition-all duration-500"
-                  style={{
-                    width: i === spotIdx ? '22px' : '6px',
-                    height: '6px',
-                    background: i === spotIdx
-                      ? (pl.team === 'A' ? m.team_a_color : m.team_b_color)
-                      : 'rgba(255,255,255,0.12)',
-                  }} />
-              ))}
+            {/* Main content split */}
+            <div className="flex-1 min-h-0 flex items-center justify-between relative">
+              {/* Large background team name watermark */}
+              <div 
+                className="pi-watermark absolute -left-6 top-1/2 -translate-y-1/2 text-[12vw] font-black uppercase tracking-widest select-none pointer-events-none leading-none z-10 text-stroke opacity-10"
+                style={{ 
+                  fontFamily: "'Outfit', 'Inter', sans-serif"
+                }}
+              >
+                {spotTeam}
+              </div>
+
+
+
+              {/* Left Side: Card + Background Strokes Wrapper */}
+              <div className="relative w-[38%] h-[82%] flex items-center justify-center">
+                
+                {/* Diagonal paint strokes / polygons (behind card, z-10) */}
+                <div className="absolute inset-0 pointer-events-none z-10 overflow-visible">
+                  <div className="pi-stroke absolute inset-0 origin-left">
+                    <div 
+                      className="absolute top-[-8%] left-[-10%] w-[120%] h-[116%] opacity-20 transform -rotate-12"
+                      style={{ 
+                        background: `linear-gradient(135deg, ${spotColor} 0%, transparent 80%)`,
+                        clipPath: 'polygon(15% 0%, 100% 0%, 85% 100%, 0% 100%)'
+                      }} 
+                    />
+                  </div>
+                  <div className="pi-stroke absolute inset-0 origin-left">
+                    <div 
+                      className="absolute top-[2%] left-[-5%] w-[110%] h-[96%] opacity-40 transform -rotate-6"
+                      style={{ 
+                        background: `linear-gradient(45deg, ${spotColor} 0%, transparent 95%)`,
+                        clipPath: 'polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%)'
+                      }} 
+                    />
+                  </div>
+                </div>
+
+                {/* The card itself (z-20) with overflow-hidden to clip the solid image background */}
+                <div 
+                  ref={cardRef} 
+                  className="relative w-full h-full rounded-[2rem] border overflow-hidden flex items-end justify-center z-20 glow-border"
+                  style={{ 
+                    borderColor: `${spotColor}44`,
+                    background: `linear-gradient(135deg, ${spotColor}12 0%, rgba(255,255,255,0.01) 100%)`,
+                  }}
+                >
+                  {/* Player image filled exactly inside the card boundaries */}
+                  {spotlight.photo_url ? (
+                    <img
+                      ref={photoRef}
+                      src={spotlight.photo_url}
+                      alt={spotlight.name}
+                      onLoad={(e) => {
+                        gsap.killTweensOf(e.currentTarget)
+                        gsap.to(e.currentTarget, { scale: 1, opacity: 1, duration: 0.55, ease: 'power3.out' })
+                      }}
+                      className="pi-photo relative w-full h-full object-cover object-top z-20 select-none"
+                      style={{ 
+                        transformOrigin: 'bottom center',
+                        filter: `drop-shadow(0 0 24px ${spotColor}60) drop-shadow(0 -10px 30px rgba(0,0,0,0.85))`,
+                        opacity: 0
+                      }}
+                    />
+                  ) : (
+                    <div className="text-white/20 text-xs uppercase tracking-widest bottom-8 absolute">No Photo</div>
+                  )}
+
+                  {/* Team logo badge inside card */}
+                  <div className="absolute top-5 left-5 z-30 h-10 w-10 rounded-xl bg-slate-950/40 border border-white/10 flex items-center justify-center p-1.5 backdrop-blur-md">
+                    {spotLogo ? (
+                      <img src={spotLogo} alt="" className="h-full w-full object-contain filter drop-shadow-md" />
+                    ) : (
+                      <span className="text-sm font-black" style={{ color: spotColor }}>{spotTeam.charAt(0)}</span>
+                    )}
+                  </div>
+
+                  {/* Accent dots grid */}
+                  <div className="absolute bottom-5 left-5 opacity-25 z-10">
+                    <svg width="24" height="24" viewBox="0 0 24 24" className="fill-white">
+                      <circle cx="2" cy="2" r="1.5" />
+                      <circle cx="10" cy="2" r="1.5" />
+                      <circle cx="18" cy="2" r="1.5" />
+                      <circle cx="2" cy="10" r="1.5" />
+                      <circle cx="10" cy="10" r="1.5" />
+                      <circle cx="18" cy="10" r="1.5" />
+                      <circle cx="2" cy="18" r="1.5" />
+                      <circle cx="10" cy="18" r="1.5" />
+                      <circle cx="18" cy="18" r="1.5" />
+                    </svg>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Right Side: Player Details */}
+              <div className="flex-1 h-full flex flex-col justify-center pl-20 pr-12 z-20">
+                <div 
+                  className="text-xs sm:text-sm font-black uppercase tracking-[0.45em] mb-2"
+                  style={{ color: spotColor }}
+                >
+                  {spotStatus === 'SUB' ? 'SUBSTITUTE' : 'SPOTLIGHT PLAYER'}
+                </div>
+
+                <div 
+                  ref={nameRef}
+                  className="text-5xl sm:text-6xl lg:text-7xl font-black uppercase tracking-tight text-white mb-3 leading-none distressed-title"
+                >
+                  {spotlight.name}
+                </div>
+
+                <div 
+                  className="h-[3px] w-52 mb-8 rounded-full"
+                  style={{ 
+                    background: `linear-gradient(90deg, ${spotColor}, transparent)`,
+                    boxShadow: `0 0 12px ${spotColor}`
+                  }}
+                />
+
+                <div ref={metaRef} className="grid grid-cols-3 gap-8 max-w-xl border-t border-b border-white/[0.08] py-6 mb-6">
+                  <div>
+                    <p className="text-white/40 text-[10px] uppercase tracking-widest font-black mb-1">Jersey No.</p>
+                    <p className="text-2xl sm:text-4xl font-black" style={{ color: spotColor }}>
+                      #{spotlight.jersey_number}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-white/40 text-[10px] uppercase tracking-widest font-black mb-1">Role</p>
+                    <p className="text-2xl sm:text-4xl font-black text-white">
+                      {spotlight.status === 'sub' ? 'SUB' : 'STARTER'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-white/40 text-[10px] uppercase tracking-widest font-black mb-1">Team</p>
+                    <p className="text-2xl sm:text-4xl font-black uppercase" style={{ color: spotColor }}>
+                      {spotTeam}
+                    </p>
+                  </div>
+                </div>
+
+                <p className="text-white/30 text-[10px] uppercase tracking-[0.35em] font-medium">
+                  ONE TEAM. ONE FIGHT. ONE <span style={{ color: spotColor }}>{spotTeam}</span>.
+                </p>
+              </div>
             </div>
-          )}
-        </div>
-      )}
 
-      {/* Footer — shown only when no players */}
-      {allPlayers.length === 0 && (
-        <div className="flex-shrink-0 flex items-center justify-center pb-10 pt-2 relative z-10">
-          <div className="flex items-center gap-4 text-white/15 text-xs uppercase tracking-widest font-medium">
-            <div className="h-px w-16 bg-white/10" />
-            Waiting for match to start
-            <div className="h-px w-16 bg-white/10" />
+            {/* Pagination dots */}
+            {allPlayers.length > 1 && (
+              <div className="flex-shrink-0 flex justify-center gap-1.5 pb-2">
+                {allPlayers.map((pl, i) => (
+                  <div key={i} className="rounded-full transition-all duration-500"
+                    style={{
+                      width: i === spotIdx ? '28px' : '8px',
+                      height: '8px',
+                      background: i === spotIdx
+                        ? (pl.team === 'A' ? m.team_a_color : m.team_b_color)
+                        : 'rgba(255,255,255,0.15)',
+                    }} />
+                ))}
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="h-full flex items-center justify-center">
+            <div className="text-white/20 text-sm uppercase tracking-[0.45em] font-bold">Waiting for players</div>
+          </div>
+        )}
+      </div>
+
+      {/* SVG Mask Definition */}
+      <svg width="0" height="0" style={{ position: 'absolute', pointerEvents: 'none' }}>
+        <defs>
+          <mask id="circle-reveal-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="100%" height="100%">
+            <image
+              href="https://assets.codepen.io/721952/liquidMask2.svg"
+              x="0"
+              y={maskFrame !== null ? `-${maskFrame * 100}%` : '0%'}
+              width="100%"
+              height="3000%"
+              preserveAspectRatio="none"
+            />
+          </mask>
+        </defs>
+      </svg>
     </div>
   )
 }
@@ -695,19 +1063,28 @@ function SingleMatchDisplay({ lm, players }: { lm: LiveMatch; players: Player[] 
 
   useEffect(() => {
     if (s.score_a !== prevA.current && scoreARef.current) {
-      animateScore(scoreARef.current, m.team_a_color)
+      const diff = s.score_a - prevA.current
+      if (diff > 0) {
+        animateScore(scoreARef.current, m.team_a_color)
+        spawnFloatingScore(scoreARef.current, `+${diff}`, m.team_a_color, false)
+      }
       prevA.current = s.score_a
     }
-  }, [s.score_a])
+  }, [s.score_a, m.team_a_color])
 
   useEffect(() => {
     if (s.score_b !== prevB.current && scoreBRef.current) {
-      animateScore(scoreBRef.current, m.team_b_color)
+      const diff = s.score_b - prevB.current
+      if (diff > 0) {
+        animateScore(scoreBRef.current, m.team_b_color)
+        spawnFloatingScore(scoreBRef.current, `+${diff}`, m.team_b_color, false)
+      }
       prevB.current = s.score_b
     }
-  }, [s.score_b])
+  }, [s.score_b, m.team_b_color])
 
   if (m.status === 'pending') return <PreMatchIntro m={m} players={players} />
+  if (m.status === 'completed') return <MatchCompletedCelebration lm={lm} />
 
   const status = ({ pending: 'NOT STARTED', active: 'LIVE', paused: 'PAUSED', timeout: 'TIMEOUT', completed: 'FINAL', cancelled: 'CANCELLED' } as Record<string,string>)[m.status] ?? m.status.toUpperCase()
   const statusColor = ({ active: '#10b981', timeout: '#f59e0b', completed: '#64748b', pending: '#94a3b8', paused: '#38bdf8', cancelled: '#ef4444' } as Record<string,string>)[m.status] ?? '#64748b'
@@ -846,17 +1223,30 @@ function CompactScore({ lm }: { lm: LiveMatch }) {
 
   useEffect(() => {
     if (s.score_a !== prevA.current && scoreARef.current) {
-      animateScore(scoreARef.current, m.team_a_color); prevA.current = s.score_a
+      const diff = s.score_a - prevA.current
+      if (diff > 0) {
+        animateScore(scoreARef.current, m.team_a_color)
+        spawnFloatingScore(scoreARef.current, `+${diff}`, m.team_a_color, true)
+      }
+      prevA.current = s.score_a
     }
-  }, [s.score_a])
+  }, [s.score_a, m.team_a_color])
+
   useEffect(() => {
     if (s.score_b !== prevB.current && scoreBRef.current) {
-      animateScore(scoreBRef.current, m.team_b_color); prevB.current = s.score_b
+      const diff = s.score_b - prevB.current
+      if (diff > 0) {
+        animateScore(scoreBRef.current, m.team_b_color)
+        spawnFloatingScore(scoreBRef.current, `+${diff}`, m.team_b_color, true)
+      }
+      prevB.current = s.score_b
     }
-  }, [s.score_b])
+  }, [s.score_b, m.team_b_color])
 
   const status = ({ active: 'LIVE', timeout: 'TIMEOUT', completed: 'FINAL', pending: 'PENDING', paused: 'PAUSED', cancelled: 'CANCELLED' } as Record<string,string>)[m.status] ?? m.status
   const statusColor = ({ active: '#10b981', timeout: '#f59e0b', completed: '#64748b', pending: '#64748b', paused: '#38bdf8', cancelled: '#ef4444' } as Record<string,string>)[m.status] ?? '#64748b'
+  const isCompleted = m.status === 'completed'
+  const winnerKey = s.winner || (s.score_a > s.score_b ? 'A' : s.score_b > s.score_a ? 'B' : 'draw')
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-6 gap-3">
@@ -872,7 +1262,10 @@ function CompactScore({ lm }: { lm: LiveMatch }) {
             <img src={m.team_a_logo} alt="" className="h-8 w-8 object-contain rounded ml-auto mb-1"
               onError={(e) => (e.currentTarget.style.display = 'none')} />
           )}
-          <p className="text-sm font-bold uppercase" style={{ color: m.team_a_color }}>{m.team_a}</p>
+          <p className="text-sm font-bold uppercase flex items-center justify-end gap-1" style={{ color: m.team_a_color }}>
+            {isCompleted && winnerKey === 'A' && <span title="Winner" className="text-sm">🏆</span>}
+            {m.team_a}
+          </p>
           <div ref={scoreARef} className="text-6xl font-black font-score tabular-nums leading-none"
             style={{ color: m.team_a_color }}>
             {s.score_a}
@@ -884,7 +1277,10 @@ function CompactScore({ lm }: { lm: LiveMatch }) {
             <img src={m.team_b_logo} alt="" className="h-8 w-8 object-contain rounded mb-1"
               onError={(e) => (e.currentTarget.style.display = 'none')} />
           )}
-          <p className="text-sm font-bold uppercase" style={{ color: m.team_b_color }}>{m.team_b}</p>
+          <p className="text-sm font-bold uppercase flex items-center gap-1" style={{ color: m.team_b_color }}>
+            {m.team_b}
+            {isCompleted && winnerKey === 'B' && <span title="Winner" className="text-sm">🏆</span>}
+          </p>
           <div ref={scoreBRef} className="text-6xl font-black font-score tabular-nums leading-none"
             style={{ color: m.team_b_color }}>
             {s.score_b}
@@ -935,4 +1331,234 @@ function animateScore(el: HTMLElement, color: string) {
       scale: 1, duration: 0.45, ease: 'elastic.out(1, 0.4)',
       filter: `drop-shadow(0 0 15px ${color}40)`,
     })
+}
+
+// ── Immersive Floating Score Points Animation ────────────────────────────────
+function spawnFloatingScore(parentEl: HTMLElement, text: string, color: string, isCompact = false) {
+  const container = parentEl.parentElement
+  if (!container) return
+
+  // Create floating indicator text
+  const floatEl = document.createElement('div')
+  floatEl.innerText = text
+  floatEl.className = 'absolute font-black pointer-events-none select-none z-50'
+  floatEl.style.color = color
+  floatEl.style.fontSize = isCompact ? '2.2rem' : 'clamp(3rem, 8vw, 7rem)'
+  floatEl.style.textShadow = `0 0 20px ${color}, 0 0 40px ${color}`
+
+  container.style.position = 'relative'
+  container.appendChild(floatEl)
+
+  gsap.set(floatEl, {
+    xPercent: -50,
+    yPercent: -50,
+    left: '50%',
+    top: '50%',
+    scale: 0.2,
+    opacity: 0,
+  })
+
+  gsap.timeline()
+    .to(floatEl, {
+      scale: 1.4,
+      opacity: 1,
+      y: isCompact ? -20 : -50,
+      duration: 0.25,
+      ease: 'back.out(1.7)',
+    })
+    .to(floatEl, {
+      scale: 1.6,
+      y: isCompact ? -60 : -180,
+      opacity: 0,
+      duration: 0.7,
+      ease: 'power2.in',
+      onComplete: () => floatEl.remove(),
+    })
+
+  // Spawn glowing particle burst
+  const numParticles = isCompact ? 6 : 12
+  const maxDist = isCompact ? 60 : 180
+
+  for (let i = 0; i < numParticles; i++) {
+    const p = document.createElement('div')
+    p.className = 'absolute rounded-full pointer-events-none z-40'
+    p.style.width = isCompact ? `${Math.random() * 6 + 4}px` : `${Math.random() * 12 + 6}px`
+    p.style.height = p.style.width
+    p.style.backgroundColor = color
+    p.style.boxShadow = `0 0 10px ${color}, 0 0 20px ${color}`
+    container.appendChild(p)
+
+    gsap.set(p, {
+      xPercent: -50,
+      yPercent: -50,
+      left: '50%',
+      top: '50%',
+    })
+
+    const angle = (i / numParticles) * Math.PI * 2 + (Math.random() * 0.4 - 0.2)
+    const distance = Math.random() * (maxDist / 2) + (maxDist / 2)
+    const destX = Math.cos(angle) * distance
+    const destY = Math.sin(angle) * distance
+
+    gsap.timeline()
+      .to(p, {
+        x: destX,
+        y: destY,
+        scale: 1.5,
+        duration: 0.3,
+        ease: 'power1.out',
+      })
+      .to(p, {
+        scale: 0,
+        opacity: 0,
+        x: destX * 1.2,
+        y: destY * 1.2,
+        duration: 0.5,
+        ease: 'power1.in',
+        onComplete: () => p.remove(),
+      })
+  }
+}
+
+// ── Match Ended Celebration View ─────────────────────────────────────────────
+function MatchCompletedCelebration({ lm }: { lm: LiveMatch }) {
+  const { match: m, state: s } = lm
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // Determine winner details
+  let winnerName = ''
+  let winnerColor = '#e2e8f0'
+  let winnerLogo = ''
+  let isDraw = false
+
+  const winnerKey = s.winner || (s.score_a > s.score_b ? 'A' : s.score_b > s.score_a ? 'B' : 'draw')
+
+  if (winnerKey === 'A') {
+    winnerName = m.team_a
+    winnerColor = m.team_a_color
+    winnerLogo = m.team_a_logo
+  } else if (winnerKey === 'B') {
+    winnerName = m.team_b
+    winnerColor = m.team_b_color
+    winnerLogo = m.team_b_logo
+  } else {
+    isDraw = true
+  }
+
+  useEffect(() => {
+    if (!containerRef.current) return
+
+    // Card slide-in/scale entrance
+    gsap.fromTo(
+      containerRef.current.querySelector('.celebration-card'),
+      { scale: 0.6, opacity: 0, y: 100 },
+      { scale: 1, opacity: 1, y: 0, duration: 1.2, ease: 'back.out(1.5)' }
+    )
+
+    gsap.fromTo(
+      containerRef.current.querySelector('.celebration-logo'),
+      { rotationY: -180, scale: 0.2, opacity: 0 },
+      { rotationY: 0, scale: 1, opacity: 1, duration: 1.5, delay: 0.5, ease: 'power3.out' }
+    )
+
+    // Falling confetti animation
+    const colors = isDraw ? ['#38bdf8', '#fbbf24', '#f43f5e', '#34d399'] : [winnerColor, '#ffffff', '#fbbf24']
+    const particleCount = 80
+    for (let i = 0; i < particleCount; i++) {
+      const p = document.createElement('div')
+      p.className = 'absolute rounded-sm pointer-events-none'
+      p.style.width = `${Math.random() * 10 + 6}px`
+      p.style.height = `${Math.random() * 15 + 8}px`
+      p.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)]
+      containerRef.current.appendChild(p)
+
+      const xStart = Math.random() * window.innerWidth
+      const yStart = -20
+      const xEnd = xStart + (Math.random() * 300 - 150)
+      const yEnd = window.innerHeight + 20
+      const rotation = Math.random() * 720 - 360
+
+      gsap.set(p, { x: xStart, y: yStart, rotation: Math.random() * 360 })
+
+      gsap.to(p, {
+        x: xEnd,
+        y: yEnd,
+        rotation: rotation,
+        duration: Math.random() * 3 + 2.5,
+        delay: Math.random() * 1.5,
+        ease: 'power1.out',
+        onComplete: () => p.remove(),
+      })
+    }
+  }, [winnerColor, isDraw])
+
+  return (
+    <div ref={containerRef} className="flex-1 flex flex-col items-center justify-center relative overflow-hidden bg-[#020611]">
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute top-[-20%] left-[-20%] w-[140%] h-[140%] opacity-20"
+          style={{
+            background: isDraw 
+              ? 'radial-gradient(circle, rgba(99,102,241,0.2) 0%, transparent 60%)'
+              : `radial-gradient(circle, ${winnerColor}25 0%, transparent 65%)`
+          }} 
+        />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full filter blur-[150px] opacity-25 animate-pulse"
+          style={{ backgroundColor: isDraw ? '#4f46e5' : winnerColor }} 
+        />
+      </div>
+
+      <div className="celebration-card flex flex-col items-center max-w-2xl w-full px-8 py-12 rounded-3xl border border-white/5 bg-white/[0.02] backdrop-blur-md shadow-2xl relative z-10 text-center">
+        <p className="text-white/40 text-sm font-black uppercase tracking-[0.4em] mb-3 leading-none">
+          {m.tournament_name || 'TOURNAMENT MATCH'}
+        </p>
+        <span className="text-xs font-black uppercase tracking-widest px-4 py-1.5 rounded-full border border-emerald-500/30 text-emerald-400 bg-emerald-950/20 mb-8">
+          MATCH COMPLETED
+        </span>
+
+        {isDraw ? (
+          <>
+            <div className="celebration-logo flex items-center justify-center w-32 h-32 rounded-full bg-indigo-950/30 border-2 border-indigo-500/40 shadow-lg mb-6">
+              <Trophy size={64} className="text-indigo-400" />
+            </div>
+            <h1 className="text-5xl md:text-6xl font-black text-white uppercase tracking-tight mb-4 drop-shadow-lg">
+              MATCH DRAWN!
+            </h1>
+          </>
+        ) : (
+          <>
+            {winnerLogo ? (
+              <img src={winnerLogo} alt="" className="celebration-logo h-36 w-36 object-contain rounded-3xl mb-6 shadow-2xl"
+                onError={(e) => { e.currentTarget.style.display = 'none' }} />
+            ) : (
+              <div className="celebration-logo flex items-center justify-center w-32 h-32 rounded-full bg-amber-950/30 border-2 border-amber-500/40 mb-6">
+                <Trophy size={64} className="text-amber-400" />
+              </div>
+            )}
+            <p className="text-amber-400 text-sm font-black uppercase tracking-[0.25em] mb-1">
+              🏆 WINNER 🏆
+            </p>
+            <h1 className="text-5xl md:text-7xl font-black uppercase tracking-tight mb-4 drop-shadow-2xl leading-none"
+              style={{ color: winnerColor, textShadow: `0 0 50px ${winnerColor}50` }}>
+              {winnerName}
+            </h1>
+          </>
+        )}
+
+        <div className="mt-8 pt-8 border-t border-white/5 w-full max-w-md">
+          <p className="text-white/30 text-xs font-bold uppercase tracking-wider mb-3">FINAL SCORE</p>
+          <div className="flex items-center justify-center gap-6">
+            <div className="text-right flex-1">
+              <p className="text-sm font-semibold truncate" style={{ color: m.team_a_color }}>{m.team_a}</p>
+              <p className="text-4xl font-black font-score" style={{ color: m.team_a_color }}>{s.score_a}</p>
+            </div>
+            <div className="text-white/20 text-2xl font-black">:</div>
+            <div className="text-left flex-1">
+              <p className="text-sm font-semibold truncate" style={{ color: m.team_b_color }}>{m.team_b}</p>
+              <p className="text-4xl font-black font-score" style={{ color: m.team_b_color }}>{s.score_b}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 }
