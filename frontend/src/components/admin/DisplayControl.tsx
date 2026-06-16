@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { clsx } from 'clsx'
-import { Monitor, Columns2, Grid2x2, Megaphone, Video, Tv, Send } from 'lucide-react'
+import { Monitor, Columns2, Grid2x2, Megaphone, Video, Tv, Send, Play, Check } from 'lucide-react'
 import { Button } from '@/components/common/Button'
-import { setDisplayLayout } from '@/services/api'
-import type { Match } from '@/types'
+import { setDisplayLayout, listDisplayAssets, showDisplayAsset } from '@/services/api'
+import { isVideoUrl } from '@/components/admin/DisplayAssetsControl'
+import type { Match, DisplayAsset } from '@/types'
 
 interface Props {
   matches: Match[]
@@ -24,8 +25,24 @@ export function DisplayControl({ matches }: Props) {
   const [selected, setSelected] = useState<string[]>([])
   const [sending, setSending]  = useState(false)
   const [pushed, setPushed]    = useState(false)
+  const [assets, setAssets]    = useState<DisplayAsset[]>([])
+  const [shownId, setShownId]  = useState<string | null>(null)
 
   const maxSel = MAX_MATCHES[mode] ?? 0
+  const assetType: 'announcement' | 'sponsor' | null = mode === 4 ? 'announcement' : mode === 5 ? 'sponsor' : null
+
+  // Keep the saved sponsor/announcement library in sync so it can be pushed
+  // straight from here. Refetch when switching into Announce/Sponsor mode.
+  useEffect(() => {
+    if (!assetType) return
+    listDisplayAssets().then(setAssets).catch(() => {})
+  }, [assetType])
+
+  const handleShowAsset = async (id: string) => {
+    await showDisplayAsset(id)
+    setShownId(id)
+    setTimeout(() => setShownId((cur) => (cur === id ? null : cur)), 2500)
+  }
 
   const toggleMatch = (id: string) => {
     if (selected.includes(id)) {
@@ -142,17 +159,68 @@ export function DisplayControl({ matches }: Props) {
         </div>
       )}
 
-      {/* Push button */}
-      <Button
-        className="w-full"
-        variant={pushed ? 'success' : 'primary'}
-        icon={<Send size={14} />}
-        loading={sending}
-        onClick={handlePush}
-        disabled={maxSel > 0 && selected.length === 0}
-      >
-        {pushed ? '✓ Pushed to Display Screens' : 'Push to Display Screens'}
-      </Button>
+      {/* Saved sponsors / announcements — push straight to the display */}
+      {assetType && (
+        <div>
+          <p className="text-xs text-dark-500 mb-2 font-medium">
+            {assetType === 'sponsor' ? 'Saved sponsors' : 'Saved announcements'}
+            <span className="text-dark-700"> — tap Show to push</span>
+          </p>
+          <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+            {assets.filter((a) => a.type === assetType).length === 0 && (
+              <p className="text-xs text-dark-600 text-center py-4">
+                None saved yet — add one in “Sponsors &amp; Announcements”.
+              </p>
+            )}
+            {assets.filter((a) => a.type === assetType).map((a) => {
+              const vid = isVideoUrl(a.image_url)
+              return (
+                <div key={a.id} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border border-dark-700 bg-dark-800">
+                  {a.image_url ? (
+                    vid ? (
+                      <div className="relative h-9 w-9 rounded-lg bg-dark-925 flex-shrink-0 flex items-center justify-center overflow-hidden">
+                        <video src={a.image_url} className="h-full w-full object-cover" muted />
+                        <Play size={11} className="absolute text-white/80" fill="currentColor" />
+                      </div>
+                    ) : (
+                      <img src={a.image_url} alt="" className="h-9 w-9 object-contain rounded-lg bg-dark-925 flex-shrink-0" />
+                    )
+                  ) : (
+                    <div className="h-9 w-9 rounded-lg bg-dark-900 flex items-center justify-center flex-shrink-0">
+                      <Megaphone size={14} className="text-dark-500" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-dark-100 truncate">{a.title || a.body || (vid ? 'Video' : 'Image')}</p>
+                    <p className="text-xs text-dark-600">{vid ? 'Video' : `${a.duration}s`}</p>
+                  </div>
+                  <button onClick={() => handleShowAsset(a.id)}
+                    className={clsx(
+                      'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all active:scale-95 flex-shrink-0',
+                      shownId === a.id ? 'bg-live/20 text-live' : 'bg-brand-500/15 text-brand-200 hover:bg-brand-500/25',
+                    )}>
+                    {shownId === a.id ? <><Check size={13} /> Shown</> : <><Send size={13} /> Show</>}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Push button — only for match layouts (1/2/4). Assets push via Show. */}
+      {!assetType && (
+        <Button
+          className="w-full"
+          variant={pushed ? 'success' : 'primary'}
+          icon={<Send size={14} />}
+          loading={sending}
+          onClick={handlePush}
+          disabled={maxSel > 0 && selected.length === 0}
+        >
+          {pushed ? '✓ Pushed to Display Screens' : 'Push to Display Screens'}
+        </Button>
+      )}
     </div>
   )
 }

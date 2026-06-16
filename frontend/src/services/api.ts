@@ -88,6 +88,16 @@ export const uploadTeamLogo = async (file: File): Promise<string> => {
 }
 export const listDevices   = () => api.get<DeviceInfo[]>('/devices').then((r) => r.data)
 
+// Image OR video upload (sponsor cards / banners)
+export const uploadMedia = async (file: File): Promise<{ url: string; is_video: boolean }> => {
+  const form = new FormData()
+  form.append('file', file)
+  const r = await api.post<{ url: string; is_video: boolean }>('/upload/media', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return r.data
+}
+
 // Events
 export const listEvents = (matchId: string) =>
   api.get<Event[]>(`/matches/${matchId}/events`).then((r) => r.data)

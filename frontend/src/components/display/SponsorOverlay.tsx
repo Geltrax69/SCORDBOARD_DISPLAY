@@ -8,8 +8,11 @@ interface Props {
   onDone?: () => void
 }
 
+const isVideo = (url: string) => /\.(mp4|webm|mov|m4v|ogg)(\?|$)/i.test(url)
+
 // Full-screen sponsor card. The logo eases up with a soft glow sweep, holds,
-// then bows out — a clean broadcast "brought to you by" moment.
+// then bows out — a clean broadcast "brought to you by" moment. If the media is
+// a video, it plays full-screen to the end instead.
 export function SponsorOverlay({ title, imageUrl, duration, onDone }: Props) {
   const overlayRef = useRef<HTMLDivElement>(null)
   const cardRef    = useRef<HTMLDivElement>(null)
@@ -17,9 +20,10 @@ export function SponsorOverlay({ title, imageUrl, duration, onDone }: Props) {
   const labelRef   = useRef<HTMLParagraphElement>(null)
   const titleRef   = useRef<HTMLParagraphElement>(null)
   const sweepRef   = useRef<HTMLDivElement>(null)
+  const video      = isVideo(imageUrl)
 
   useEffect(() => {
-    if (!overlayRef.current) return
+    if (!overlayRef.current || video) return
     const tl = gsap.timeline({ onComplete: onDone })
 
     tl.fromTo(overlayRef.current, { opacity: 0 }, { opacity: 1, duration: 0.4 })
@@ -40,7 +44,28 @@ export function SponsorOverlay({ title, imageUrl, duration, onDone }: Props) {
       .to(overlayRef.current, { opacity: 0, duration: 0.35 }, '-=0.2')
 
     return () => { tl.kill() }
-  }, [duration, onDone])
+  }, [duration, onDone, video])
+
+  // Video sponsor: full-screen playback, ends when the clip ends.
+  if (video) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black">
+        <video
+          src={imageUrl}
+          autoPlay muted playsInline
+          onEnded={onDone}
+          onError={onDone}
+          className="w-full h-full object-contain bg-black"
+        />
+        {title && (
+          <p className="absolute bottom-10 left-1/2 -translate-x-1/2 text-white/90 text-2xl md:text-4xl font-black tracking-tight"
+             style={{ textShadow: '0 2px 12px rgba(0,0,0,0.8)' }}>
+            {title}
+          </p>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div

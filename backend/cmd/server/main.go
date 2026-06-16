@@ -118,6 +118,7 @@ func main() {
 			// File upload (all authenticated users)
 			secured.POST("/upload/player-photo", uploadH.UploadPlayerPhoto)
 			secured.POST("/upload/team-logo", uploadH.UploadTeamLogo)
+			secured.POST("/upload/media", uploadH.UploadMedia)
 
 			// Super admin only
 			admin := secured.Group("", auth.RequireRole("super_admin"))

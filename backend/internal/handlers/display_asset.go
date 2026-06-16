@@ -31,11 +31,12 @@ func (h *AssetHandler) Create(c *gin.Context) {
 		return
 	}
 	if req.Type == "sponsor" && req.ImageURL == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "sponsor requires an image"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "sponsor requires an image or video"})
 		return
 	}
-	if req.Type == "announcement" && req.Body == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "announcement requires text"})
+	// Announcement: description is optional — just need a headline, text, or image.
+	if req.Type == "announcement" && req.Body == "" && req.Title == "" && req.ImageURL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "announcement needs a headline, text, or image"})
 		return
 	}
 
