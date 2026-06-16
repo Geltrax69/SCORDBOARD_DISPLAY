@@ -48,6 +48,7 @@ func main() {
 	matchRepo      := repository.NewMatchRepo(database)
 	eventRepo      := repository.NewEventRepo(database)
 	playerRepo     := repository.NewPlayerRepo(database)
+	assetRepo      := repository.NewDisplayAssetRepo(database)
 
 	// WebSocket hub
 	hub := ws.NewHub()
@@ -76,6 +77,7 @@ func main() {
 	wsH       := handlers.NewWebSocketHandler(hub, matchRepo)
 	deviceH   := handlers.NewDeviceHandler(hub, matchRepo, cfg.JWTSecret, serverInfo, database)
 	uploadH   := handlers.NewUploadHandler(uploadDir, "/uploads")
+	assetH    := handlers.NewAssetHandler(assetRepo, hub)
 
 	if cfg.Environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
@@ -136,6 +138,11 @@ func main() {
 
 				admin.POST("/announce", eventH.Announce)
 				admin.POST("/display/layout", deviceH.SetLayout)
+
+				// Sponsor / announcement library — build once, push with one click
+				admin.POST("/display-assets", assetH.Create)
+				admin.DELETE("/display-assets/:id", assetH.Delete)
+				admin.POST("/display-assets/:id/show", assetH.Show)
 			}
 
 			// All authenticated
@@ -147,6 +154,7 @@ func main() {
 			secured.GET("/matches/:id", matchH.Get)
 			secured.GET("/matches/:id/events", eventH.List)
 			secured.GET("/matches/:id/players", matchH.GetPlayers)
+			secured.GET("/display-assets", assetH.List)
 
 			secured.POST("/matches/:id/events",
 				auth.RequireRole("super_admin", "scorer"),

@@ -11,6 +11,7 @@ import { Modal } from '@/components/common/Modal'
 import { PageLoader } from '@/components/common/LoadingSpinner'
 import { DeviceDashboard } from '@/components/admin/DeviceDashboard'
 import { DisplayControl } from '@/components/admin/DisplayControl'
+import { DisplayAssetsControl } from '@/components/admin/DisplayAssetsControl'
 import { MatchQRModal } from '@/components/admin/MatchQRModal'
 import { PlayersForm } from '@/components/admin/PlayersForm'
 import {
@@ -502,6 +503,13 @@ export default function Dashboard() {
           {isSuperAdmin && (
             <div className="card-hi p-5">
               <DisplayControl matches={matches} />
+            </div>
+          )}
+
+          {/* Sponsors & Announcements library */}
+          {isSuperAdmin && (
+            <div className="card-hi p-5">
+              <DisplayAssetsControl />
             </div>
           )}
 

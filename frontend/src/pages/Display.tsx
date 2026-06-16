@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, useCallback, useMemo, useLayoutEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { gsap } from 'gsap'
+import { Flip } from 'gsap/Flip'
+
+gsap.registerPlugin(Flip)
 import { scoreboardWS } from '@/services/websocket'
 import { useAuthStore } from '@/store/authStore'
 import { useWSStore } from '@/store/wsStore'
@@ -8,15 +11,16 @@ import { getMatch, listMatches, getMatchPlayers } from '@/services/api'
 import { TimeoutOverlay } from '@/components/display/TimeoutOverlay'
 import { SubstitutionOverlay } from '@/components/display/SubstitutionOverlay'
 import { AnnouncementOverlay } from '@/components/display/AnnouncementOverlay'
+import { SponsorOverlay } from '@/components/display/SponsorOverlay'
 import { PlayerLineup } from '@/components/display/PlayerLineup'
 import { VideoPlayer } from '@/components/display/VideoPlayer'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import type {
   WSMessage, Match, MatchState, TimeoutPayload,
-  SubstitutionPayload, AnnouncementPayload, Player,
+  SubstitutionPayload, AnnouncementPayload, SponsorPayload, Player,
 } from '@/types'
 import { clsx } from 'clsx'
-import { Wifi, WifiOff, Trophy } from 'lucide-react'
+import { Wifi, WifiOff, Trophy, Tv } from 'lucide-react'
 
 const WS_BASE =
   (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host
@@ -31,6 +35,7 @@ type OverlayState =
   | { type: 'timeout'; payload: TimeoutPayload; match: Match }
   | { type: 'substitution'; payload: SubstitutionPayload; match: Match }
   | { type: 'announcement'; payload: AnnouncementPayload }
+  | { type: 'sponsor'; payload: SponsorPayload }
   | { type: 'video'; src: string }
 
 export default function Display() {
@@ -46,8 +51,23 @@ export default function Display() {
   const [players, setPlayers]       = useState<Record<string, Player[]>>({})
   const [overlay, setOverlay]       = useState<OverlayState>({ type: 'none' })
   const [loading, setLoading]       = useState(true)
+  // Winner takeover + reflow: a just-finished match shows full-screen, then is
+  // dropped from the grid so the remaining matches stretch to fill the space.
+  const [celebrating, setCelebrating] = useState<LiveMatch | null>(null)
+  const [dismissed, setDismissed]     = useState<Set<string>>(new Set())
 
   const layoutRef = useRef<HTMLDivElement>(null)
+
+  // After the winner takeover plays, drop that match and let the grid reflow.
+  useEffect(() => {
+    if (!celebrating) return
+    const id = celebrating.match.id
+    const t = setTimeout(() => {
+      setDismissed((prev) => new Set(prev).add(id))
+      setCelebrating(null)
+    }, 8000)
+    return () => clearTimeout(t)
+  }, [celebrating])
 
   // ── Load initial data ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -110,12 +130,21 @@ export default function Display() {
           setLiveMatches((prev) => ({ ...prev, [match_id]: { match: payload.match!, state: payload.state! } }))
         }
         if (type === 'timeout_end') setOverlay({ type: 'none' })
+        // A finished match takes over the screen, then reflows out of the grid.
+        if (type === 'match_end' && match_id && payload.match && payload.state) {
+          setCelebrating({ match: payload.match, state: payload.state })
+        }
         break
       }
       case 'match_start': {
         if (match_id && payload.match && payload.state) {
           const m = payload.match!
           const pl = players[m.id] ?? []
+          // A restarted match should re-enter the grid (undo any earlier dismiss).
+          setDismissed((prev) => {
+            if (!prev.has(m.id)) return prev
+            const next = new Set(prev); next.delete(m.id); return next
+          })
           // Show 5-second countdown BEFORE switching to live view
           setOverlay({ type: 'countdown', match: m, players: pl, pendingState: payload.state! })
         }
@@ -143,21 +172,26 @@ export default function Display() {
         if (p.message) setOverlay({ type: 'announcement', payload: p })
         break
       }
+      case 'sponsor_show': {
+        const p = payload as unknown as SponsorPayload
+        if (p.image_url) setOverlay({ type: 'sponsor', payload: p })
+        break
+      }
       case 'display_layout_change': {
         const p = payload as unknown as { mode: 1|2|3|4|5; match_ids: string[] }
         if (p.mode) {
-          animateLayoutChange(() => {
-            setMode(p.mode)
-            setMatchIds(p.match_ids ?? [])
-            // Fetch newly added matches
-            p.match_ids?.forEach(async (id) => {
-              if (!liveMatches[id]) {
-                const { match, state } = await getMatch(id)
-                const pl = await getMatchPlayers(id)
-                setLiveMatches((prev) => ({ ...prev, [id]: { match, state } }))
-                setPlayers((prev) => ({ ...prev, [id]: pl }))
-              }
-            })
+          setMode(p.mode)
+          setMatchIds(p.match_ids ?? [])
+          setDismissed(new Set()) // fresh selection — clear prior reflow state
+          setCelebrating(null)
+          // Fetch any matches we don't have yet — the grid reflows via Flip.
+          p.match_ids?.forEach(async (id) => {
+            if (!liveMatches[id]) {
+              const { match, state } = await getMatch(id)
+              const pl = await getMatchPlayers(id)
+              setLiveMatches((prev) => ({ ...prev, [id]: { match, state } }))
+              setPlayers((prev) => ({ ...prev, [id]: pl }))
+            }
           })
         }
         break
@@ -203,18 +237,6 @@ export default function Display() {
     return () => { unsub(); scoreboardWS.disconnect() }
   }, [token, singleMatchId])
 
-  // ── GSAP layout transition ────────────────────────────────────────────────
-  const animateLayoutChange = (callback: () => void) => {
-    if (!layoutRef.current) { callback(); return }
-    gsap.timeline()
-      .to(layoutRef.current, { opacity: 0, scale: 0.97, duration: 0.3, ease: 'power2.in' })
-      .call(callback)
-      .fromTo(layoutRef.current,
-        { opacity: 0, scale: 0.97 },
-        { opacity: 1, scale: 1, duration: 0.4, ease: 'power2.out' }
-      )
-  }
-
   if (loading) {
     return (
       <div className="min-h-screen bg-dark-950 flex items-center justify-center">
@@ -224,6 +246,9 @@ export default function Display() {
   }
 
   const matchList = matchIds.map((id) => liveMatches[id]).filter(Boolean) as LiveMatch[]
+  // Matches actually shown right now: selected, loaded, and not reflowed-out
+  // after their winner takeover. The grid auto-sizes to however many remain.
+  const visibleList = matchList.filter((lm) => !dismissed.has(lm.match.id))
 
   return (
     <div className="h-screen bg-dark-950 overflow-hidden relative select-none">
@@ -237,18 +262,21 @@ export default function Display() {
 
       {/* Main content */}
       <div ref={layoutRef} className="h-full flex flex-col">
-        {mode === 1 && matchList[0] && (
-          <SingleMatchDisplay lm={matchList[0]} players={players[matchList[0].match.id] ?? []} />
-        )}
-        {mode === 2 && <TwoMatchDisplay matches={matchList.slice(0, 2)} />}
-        {mode === 3 && <FourMatchGrid matches={matchList.slice(0, 4)} />}
-        {(mode === 4 || mode === 5) && matchList.length === 0 && (
+        {(mode === 4 || mode === 5) && visibleList.length === 0 ? (
           <EmptyDisplay label={mode === 4 ? 'ANNOUNCEMENT MODE' : 'SPONSOR MODE'} />
-        )}
-        {matchList.length === 0 && mode <= 3 && (
-          <EmptyDisplay label="Waiting for matches…" />
+        ) : visibleList.length === 0 ? (
+          <EmptyDisplay label="Waiting for matches" />
+        ) : (
+          <MatchGrid matches={visibleList} players={players} />
         )}
       </div>
+
+      {/* Winner takeover — full-screen celebration before the grid reflows */}
+      {celebrating && (
+        <div className="fixed inset-0 z-[60]">
+          <MatchCompletedCelebration lm={celebrating} />
+        </div>
+      )}
 
       {/* Overlays (appear on top of everything) */}
       {overlay.type === 'countdown' && (
@@ -288,6 +316,16 @@ export default function Display() {
         <AnnouncementOverlay
           message={overlay.payload.message}
           duration={overlay.payload.duration}
+          imageUrl={overlay.payload.image_url}
+          title={overlay.payload.title}
+          onDone={() => setOverlay({ type: 'none' })}
+        />
+      )}
+      {overlay.type === 'sponsor' && (
+        <SponsorOverlay
+          title={overlay.payload.title}
+          imageUrl={overlay.payload.image_url}
+          duration={overlay.payload.duration}
           onDone={() => setOverlay({ type: 'none' })}
         />
       )}
@@ -301,9 +339,64 @@ export default function Display() {
 // ── Display layout components ─────────────────────────────────────────────────
 
 function EmptyDisplay({ label }: { label: string }) {
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!rootRef.current) return
+    const ctx = gsap.context(() => {
+      gsap.fromTo('.ed-fade', { opacity: 0, y: 16 },
+        { opacity: 1, y: 0, duration: 0.8, ease: 'power3.out', stagger: 0.12 })
+      gsap.to('.ed-ring', { scale: 1.18, opacity: 0.15, duration: 2.4, repeat: -1, yoyo: true, ease: 'sine.inOut' })
+      gsap.to('.ed-ring2', { scale: 1.3, opacity: 0.08, duration: 2.4, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 0.4 })
+      gsap.to('.ed-dot', { opacity: 1, duration: 0.5, repeat: -1, yoyo: true, ease: 'sine.inOut', stagger: 0.18 })
+    }, rootRef)
+    return () => ctx.revert()
+  }, [])
+
   return (
-    <div className="flex-1 flex items-center justify-center">
-      <p className="text-dark-800 text-2xl font-black uppercase tracking-widest">{label}</p>
+    <div ref={rootRef} className="flex-1 flex items-center justify-center relative overflow-hidden">
+      {/* Ambient drifting glow */}
+      <div className="absolute w-[42vw] h-[42vw] rounded-full bg-brand-600/10 blur-[120px] animate-pulse-slow pointer-events-none" />
+      <div className="relative flex flex-col items-center gap-7">
+        <div className="relative ed-fade">
+          <div className="ed-ring absolute inset-0 rounded-full border border-brand-500/30" />
+          <div className="ed-ring2 absolute inset-0 rounded-full border border-brand-500/20" />
+          <div className="h-24 w-24 rounded-full bg-dark-900 border border-dark-700 flex items-center justify-center">
+            <Tv size={40} className="text-brand-400" />
+          </div>
+        </div>
+        <h2 className="ed-fade font-black text-white/90 tracking-tight text-4xl">Scoreboard</h2>
+        <div className="ed-fade flex items-center gap-2 text-dark-500 text-lg font-semibold uppercase tracking-[0.25em]">
+          <span>{label}</span>
+          <span className="ed-dot opacity-20">.</span>
+          <span className="ed-dot opacity-20">.</span>
+          <span className="ed-dot opacity-20">.</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Per-slot placeholder used inside the 2-up / 4-grid layouts.
+function WaitingSlot({ label, index = 0 }: { label: string; index?: number }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!ref.current) return
+    const ctx = gsap.context(() => {
+      gsap.fromTo(ref.current, { opacity: 0, y: 26, scale: 0.96 },
+        { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: 'power3.out', delay: index * 0.12 })
+      gsap.to('.ws-icon', { scale: 1.08, opacity: 0.85, duration: 1.6, repeat: -1, yoyo: true, ease: 'sine.inOut' })
+    }, ref)
+    return () => ctx.revert()
+  }, [index])
+
+  return (
+    <div ref={ref} className="relative flex flex-col items-center justify-center gap-4 rounded-3xl border border-dashed border-dark-700 bg-dark-900/40 h-full">
+      <div className="ws-icon h-16 w-16 rounded-full bg-dark-800 border border-dark-700 flex items-center justify-center">
+        <Tv size={26} className="text-dark-500" />
+      </div>
+      <p className="text-dark-400 font-black uppercase tracking-widest text-lg">{label}</p>
+      <p className="text-dark-600 text-sm font-medium">Waiting for match</p>
     </div>
   )
 }
@@ -1214,12 +1307,22 @@ function SingleMatchDisplay({ lm, players }: { lm: LiveMatch; players: Player[] 
   )
 }
 
-function CompactScore({ lm }: { lm: LiveMatch }) {
+function CompactScore({ lm, index = 0, dense = false }: { lm: LiveMatch; index?: number; dense?: boolean }) {
   const { match: m, state: s } = lm
+  const cardRef  = useRef<HTMLDivElement>(null)
   const scoreARef = useRef<HTMLDivElement>(null)
   const scoreBRef = useRef<HTMLDivElement>(null)
   const prevA = useRef(s.score_a)
   const prevB = useRef(s.score_b)
+
+  // Staggered card entrance so viewers' eyes land on each match in turn.
+  useEffect(() => {
+    if (!cardRef.current) return
+    gsap.fromTo(cardRef.current,
+      { opacity: 0, y: 26, scale: 0.96 },
+      { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: 'power3.out', delay: index * 0.12 },
+    )
+  }, [index])
 
   useEffect(() => {
     if (s.score_a !== prevA.current && scoreARef.current) {
@@ -1247,90 +1350,191 @@ function CompactScore({ lm }: { lm: LiveMatch }) {
   const statusColor = ({ active: '#10b981', timeout: '#f59e0b', completed: '#64748b', pending: '#64748b', paused: '#38bdf8', cancelled: '#ef4444' } as Record<string,string>)[m.status] ?? '#64748b'
   const isCompleted = m.status === 'completed'
   const winnerKey = s.winner || (s.score_a > s.score_b ? 'A' : s.score_b > s.score_a ? 'B' : 'draw')
+  const scoreSize = dense ? 'clamp(2.8rem, 7vw, 5.5rem)' : 'clamp(4rem, 9vw, 8rem)'
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-6 gap-3">
-      <div className="text-center">
-        {m.court_name && <p className="text-dark-600 text-xs uppercase tracking-wider">{m.court_name}</p>}
-        <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ color: statusColor, backgroundColor: `${statusColor}15` }}>
+    <div ref={cardRef} className="relative flex flex-col rounded-3xl border border-dark-700 bg-dark-900/60 overflow-hidden h-full">
+      {/* Team-colour identity bar so each match is instantly distinguishable */}
+      <div className="h-1.5 w-full flex-shrink-0"
+        style={{ background: `linear-gradient(to right, ${m.team_a_color}, ${m.team_b_color})` }} />
+
+      {/* Header — court · matchup · status, so people know exactly what they watch */}
+      <div className="flex items-center justify-between gap-2 px-5 pt-4">
+        <div className="min-w-0">
+          <p className="text-white/90 font-black uppercase tracking-wide truncate"
+             style={{ fontSize: dense ? '0.95rem' : '1.25rem' }}>
+            {m.court_name || 'Court'}
+          </p>
+          <p className="text-dark-500 text-xs font-mono">#{m.match_code}</p>
+        </div>
+        <span className="flex items-center gap-1.5 text-xs font-black uppercase tracking-widest px-3 py-1 rounded-full flex-shrink-0"
+          style={{ color: statusColor, backgroundColor: `${statusColor}1a`, border: `1px solid ${statusColor}44` }}>
+          {m.status === 'active' && <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />}
           {status}
         </span>
       </div>
-      <div className="flex items-center gap-4 w-full">
-        <div className="flex-1 text-right">
+
+      {/* Score row */}
+      <div className="flex-1 flex items-center justify-center gap-3 px-5 min-h-0">
+        {/* Team A */}
+        <div className={clsx('flex-1 flex flex-col items-center gap-1.5 rounded-2xl py-3 transition-colors',
+          isCompleted && winnerKey === 'A' && 'bg-white/[0.04]')}>
           {m.team_a_logo && (
-            <img src={m.team_a_logo} alt="" className="h-8 w-8 object-contain rounded ml-auto mb-1"
+            <img src={m.team_a_logo} alt="" className="h-10 w-10 object-contain rounded-lg"
               onError={(e) => (e.currentTarget.style.display = 'none')} />
           )}
-          <p className="text-sm font-bold uppercase flex items-center justify-end gap-1" style={{ color: m.team_a_color }}>
-            {isCompleted && winnerKey === 'A' && <span title="Winner" className="text-sm">🏆</span>}
+          <p className="text-sm font-bold uppercase tracking-wide flex items-center gap-1 text-center leading-tight"
+             style={{ color: m.team_a_color }}>
+            {isCompleted && winnerKey === 'A' && <span title="Winner">🏆</span>}
             {m.team_a}
           </p>
-          <div ref={scoreARef} className="text-6xl font-black font-score tabular-nums leading-none"
-            style={{ color: m.team_a_color }}>
+          <div ref={scoreARef} className="font-black font-score tabular-nums leading-none"
+            style={{ color: m.team_a_color, fontSize: scoreSize, filter: `drop-shadow(0 0 28px ${m.team_a_color}66)` }}>
             {s.score_a}
           </div>
         </div>
-        <div className="text-dark-700 text-3xl font-black flex-shrink-0">:</div>
-        <div className="flex-1">
+
+        <div className="text-dark-600 text-2xl font-black flex-shrink-0">vs</div>
+
+        {/* Team B */}
+        <div className={clsx('flex-1 flex flex-col items-center gap-1.5 rounded-2xl py-3 transition-colors',
+          isCompleted && winnerKey === 'B' && 'bg-white/[0.04]')}>
           {m.team_b_logo && (
-            <img src={m.team_b_logo} alt="" className="h-8 w-8 object-contain rounded mb-1"
+            <img src={m.team_b_logo} alt="" className="h-10 w-10 object-contain rounded-lg"
               onError={(e) => (e.currentTarget.style.display = 'none')} />
           )}
-          <p className="text-sm font-bold uppercase flex items-center gap-1" style={{ color: m.team_b_color }}>
+          <p className="text-sm font-bold uppercase tracking-wide flex items-center gap-1 text-center leading-tight"
+             style={{ color: m.team_b_color }}>
             {m.team_b}
-            {isCompleted && winnerKey === 'B' && <span title="Winner" className="text-sm">🏆</span>}
+            {isCompleted && winnerKey === 'B' && <span title="Winner">🏆</span>}
           </p>
-          <div ref={scoreBRef} className="text-6xl font-black font-score tabular-nums leading-none"
-            style={{ color: m.team_b_color }}>
+          <div ref={scoreBRef} className="font-black font-score tabular-nums leading-none"
+            style={{ color: m.team_b_color, fontSize: scoreSize, filter: `drop-shadow(0 0 28px ${m.team_b_color}66)` }}>
             {s.score_b}
           </div>
         </div>
       </div>
+
       {/* Timer */}
-      <div className={clsx(
-        'font-mono text-xl font-bold tabular-nums px-4 py-1.5 rounded-xl',
-        s.timer_running ? 'text-emerald-400 bg-emerald-900/10' : 'text-dark-700 bg-dark-900',
-      )}>
-        {String(Math.floor(s.timer_seconds / 60)).padStart(2,'0')}:{String(s.timer_seconds % 60).padStart(2,'0')}
+      <div className="flex items-center justify-center pb-4 pt-1">
+        <div className={clsx(
+          'flex items-center gap-2 font-mono font-bold tabular-nums px-4 py-1.5 rounded-xl',
+          dense ? 'text-lg' : 'text-2xl',
+          s.timer_running ? 'text-emerald-400 bg-emerald-500/10' : 'text-white/30 bg-white/[0.03]',
+        )}>
+          {s.timer_running && <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />}
+          {String(Math.floor(s.timer_seconds / 60)).padStart(2,'0')}:{String(s.timer_seconds % 60).padStart(2,'0')}
+        </div>
       </div>
     </div>
   )
 }
 
-function TwoMatchDisplay({ matches }: { matches: LiveMatch[] }) {
-  return (
-    <div className="flex-1 flex divide-x divide-dark-800">
-      {matches[0] ? <CompactScore lm={matches[0]} /> : <EmptyDisplay label="Court 1" />}
-      {matches[1] ? <CompactScore lm={matches[1]} /> : <EmptyDisplay label="Court 2" />}
-    </div>
-  )
+// Grid template for N matches — N drives the layout so the display "stretches"
+// to fill whenever a match is added or finishes. Tuned for a 16:9 screen.
+function gridTemplate(n: number): { cols: string; rows: string } {
+  switch (n) {
+    case 1:  return { cols: '1fr', rows: '1fr' }
+    case 2:  return { cols: '1fr 1fr', rows: '1fr' }
+    case 3:  return { cols: '1fr 1fr 1fr', rows: '1fr' }
+    case 4:  return { cols: '1fr 1fr', rows: '1fr 1fr' }
+    case 5:
+    case 6:  return { cols: '1fr 1fr 1fr', rows: '1fr 1fr' }
+    default: return { cols: '1fr 1fr 1fr 1fr', rows: 'repeat(2, 1fr)' }
+  }
 }
 
-function FourMatchGrid({ matches }: { matches: LiveMatch[] }) {
+// Auto-sizing match grid. When the set of matches changes, surviving cards
+// smoothly resize/reposition (GSAP Flip) while entering cards fade+scale in —
+// so 4→3, 2→3, 1→4, etc. all reflow like a broadcast director cut.
+function MatchGrid({ matches, players }: { matches: LiveMatch[]; players: Record<string, Player[]> }) {
+  const gridRef = useRef<HTMLDivElement>(null)
+  const prevState = useRef<Flip.FlipState | null>(null)
+  const n = matches.length
+  const dense = n >= 3
+  const idsKey = matches.map((m) => m.match.id).join(',')
+  const { cols, rows } = gridTemplate(n)
+
+  useLayoutEffect(() => {
+    if (!gridRef.current) return
+    const cards = gridRef.current.querySelectorAll<HTMLElement>('.match-card')
+    if (prevState.current) {
+      Flip.from(prevState.current, {
+        duration: 0.7,
+        ease: 'power3.inOut',
+        absolute: true,
+        scale: true,
+        onEnter: (els) =>
+          gsap.fromTo(els, { opacity: 0, scale: 0.82 },
+            { opacity: 1, scale: 1, duration: 0.55, ease: 'back.out(1.5)', delay: 0.15 }),
+        onLeave: (els) => gsap.to(els, { opacity: 0, scale: 0.82, duration: 0.35 }),
+      })
+    }
+    prevState.current = Flip.getState(cards)
+  }, [idsKey])
+
   return (
-    <div className="flex-1 grid grid-cols-2 grid-rows-2 divide-x divide-y divide-dark-800">
-      {Array.from({ length: 4 }).map((_, i) =>
-        matches[i]
-          ? <CompactScore key={matches[i].match.id} lm={matches[i]} />
-          : <EmptyDisplay key={i} label={`Court ${i + 1}`} />
-      )}
+    <div ref={gridRef} className="flex-1 grid gap-4 p-4 min-h-0"
+      style={{ gridTemplateColumns: cols, gridTemplateRows: rows }}>
+      {matches.map((lm, i) => (
+        <div key={lm.match.id} data-flip-id={lm.match.id} className="match-card min-h-0 min-w-0 flex flex-col">
+          {n === 1
+            ? <SingleMatchDisplay lm={lm} players={players[lm.match.id] ?? []} />
+            : <CompactScore lm={lm} index={i} dense={dense} />}
+        </div>
+      ))}
     </div>
   )
 }
 
 // ── Shared GSAP score animation ───────────────────────────────────────────────
+// Transform/opacity-only (GPU-composited, no per-frame filter recompute) so it
+// stays buttery on a TV/projector. Three layers: a digit punch with anticipation
+// + elastic settle, a soft radial glow flash, and an expanding shockwave ring.
 function animateScore(el: HTMLElement, color: string) {
   gsap.killTweensOf(el)
+
+  // Layer 1 — the digit: tiny anticipation, overshoot pop, springy settle.
   gsap.timeline()
-    .to(el, {
-      scale: 1.45, duration: 0.12, ease: 'power2.out',
-      filter: `drop-shadow(0 0 50px ${color}) drop-shadow(0 0 80px ${color}80)`,
-    })
-    .to(el, {
-      scale: 1, duration: 0.45, ease: 'elastic.out(1, 0.4)',
-      filter: `drop-shadow(0 0 15px ${color}40)`,
-    })
+    .to(el, { scale: 0.82, duration: 0.07, ease: 'power3.in' })
+    .to(el, { scale: 1.5, duration: 0.16, ease: 'back.out(4)' })
+    .to(el, { scale: 1, duration: 0.85, ease: 'elastic.out(1, 0.42)' })
+
+  const host = el.parentElement
+  if (!host) return
+  const prevPos = getComputedStyle(host).position
+  if (prevPos === 'static') host.style.position = 'relative'
+
+  // Layer 2 — radial glow flash behind the number.
+  const glow = document.createElement('div')
+  glow.className = 'absolute rounded-full pointer-events-none z-30'
+  glow.style.left = '50%'
+  glow.style.top = '50%'
+  glow.style.width = '60%'
+  glow.style.aspectRatio = '1'
+  glow.style.background = `radial-gradient(circle, ${color}aa 0%, ${color}33 35%, transparent 70%)`
+  glow.style.mixBlendMode = 'screen'
+  host.appendChild(glow)
+  gsap.set(glow, { xPercent: -50, yPercent: -50, scale: 0.3, opacity: 0 })
+  gsap.timeline({ onComplete: () => glow.remove() })
+    .to(glow, { scale: 1.1, opacity: 1, duration: 0.14, ease: 'power2.out' })
+    .to(glow, { scale: 1.9, opacity: 0, duration: 0.85, ease: 'power2.in' })
+
+  // Layer 3 — shockwave ring snapping outward.
+  const ring = document.createElement('div')
+  ring.className = 'absolute rounded-full pointer-events-none z-30'
+  ring.style.left = '50%'
+  ring.style.top = '50%'
+  ring.style.width = '42%'
+  ring.style.aspectRatio = '1'
+  ring.style.border = `3px solid ${color}`
+  ring.style.boxShadow = `0 0 24px ${color}`
+  host.appendChild(ring)
+  gsap.set(ring, { xPercent: -50, yPercent: -50, scale: 0.4, opacity: 0.9 })
+  gsap.to(ring, {
+    scale: 2.6, opacity: 0, duration: 0.7, ease: 'expo.out',
+    onComplete: () => ring.remove(),
+  })
 }
 
 // ── Immersive Floating Score Points Animation ────────────────────────────────
@@ -1338,13 +1542,17 @@ function spawnFloatingScore(parentEl: HTMLElement, text: string, color: string, 
   const container = parentEl.parentElement
   if (!container) return
 
-  // Create floating indicator text
+  // Create floating "+N" indicator — a glowing pill that reads clearly on screen
   const floatEl = document.createElement('div')
   floatEl.innerText = text
-  floatEl.className = 'absolute font-black pointer-events-none select-none z-50'
-  floatEl.style.color = color
-  floatEl.style.fontSize = isCompact ? '2.2rem' : 'clamp(3rem, 8vw, 7rem)'
-  floatEl.style.textShadow = `0 0 20px ${color}, 0 0 40px ${color}`
+  floatEl.className = 'absolute font-black pointer-events-none select-none z-50 leading-none'
+  floatEl.style.color = '#ffffff'
+  floatEl.style.fontSize = isCompact ? '1.5rem' : 'clamp(2.2rem, 5vw, 4.5rem)'
+  floatEl.style.padding = isCompact ? '0.15em 0.5em' : '0.12em 0.45em'
+  floatEl.style.borderRadius = '9999px'
+  floatEl.style.background = `linear-gradient(135deg, ${color}, ${color}cc)`
+  floatEl.style.boxShadow = `0 0 22px ${color}, 0 8px 24px ${color}66`
+  floatEl.style.textShadow = '0 1px 2px rgba(0,0,0,0.35)'
 
   container.style.position = 'relative'
   container.appendChild(floatEl)
@@ -1354,26 +1562,28 @@ function spawnFloatingScore(parentEl: HTMLElement, text: string, color: string, 
     yPercent: -50,
     left: '50%',
     top: '50%',
-    scale: 0.2,
+    scale: 0.3,
     opacity: 0,
+    rotation: -8,
   })
 
   gsap.timeline()
     .to(floatEl, {
-      scale: 1.4,
+      scale: 1,
       opacity: 1,
-      y: isCompact ? -20 : -50,
-      duration: 0.25,
-      ease: 'back.out(1.7)',
+      rotation: 0,
+      y: isCompact ? -18 : -55,
+      duration: 0.32,
+      ease: 'back.out(2.2)',
     })
     .to(floatEl, {
-      scale: 1.6,
-      y: isCompact ? -60 : -180,
+      y: isCompact ? -52 : -150,
       opacity: 0,
-      duration: 0.7,
+      scale: 1.05,
+      duration: 0.85,
       ease: 'power2.in',
       onComplete: () => floatEl.remove(),
-    })
+    }, '+=0.12')
 
   // Spawn glowing particle burst
   const numParticles = isCompact ? 6 : 12

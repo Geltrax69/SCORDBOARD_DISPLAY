@@ -72,6 +72,7 @@ export type EventType =
   | 'substitution'
   | 'announcement'
   | 'display_layout_change'
+  | 'sponsor_show'
   | 'connected'
 
 export interface Event {
@@ -109,11 +110,29 @@ export interface SubstitutionPayload {
 export interface AnnouncementPayload {
   message: string
   duration: number
+  image_url?: string
+  title?: string
+}
+
+export interface SponsorPayload {
+  title: string
+  image_url: string
+  duration: number
 }
 
 export interface DisplayLayoutPayload {
   mode: 1 | 2 | 3 | 4 | 5
   match_ids: string[]
+}
+
+export interface DisplayAsset {
+  id: string
+  type: 'sponsor' | 'announcement'
+  title: string
+  body: string
+  image_url: string
+  duration: number
+  created_at: string
 }
 
 export interface WSMessage {
@@ -125,6 +144,8 @@ export interface WSMessage {
     state?: MatchState
     message?: string
     duration?: number
+    image_url?: string
+    title?: string
     mode?: number
     match_ids?: string[]
     user_id?: string

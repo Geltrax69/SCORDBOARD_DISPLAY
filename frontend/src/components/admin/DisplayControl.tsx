@@ -61,22 +61,28 @@ export function DisplayControl({ matches }: Props) {
 
       {/* Mode buttons */}
       <div className="grid grid-cols-5 gap-2">
-        {MODES.map(({ mode: m, label, icon: Icon, desc }) => (
-          <button
-            key={m}
-            onClick={() => onModeChange(m)}
-            title={desc}
-            className={clsx(
-              'flex flex-col items-center gap-1.5 py-3 rounded-xl border text-xs font-medium transition-all',
-              mode === m
-                ? 'border-brand-500 bg-brand-900/20 text-brand-300'
-                : 'border-dark-600 bg-dark-700 text-dark-400 hover:border-dark-500 hover:text-dark-200',
-            )}
-          >
-            <Icon size={18} />
-            {label}
-          </button>
-        ))}
+        {MODES.map(({ mode: m, label, icon: Icon, desc }) => {
+          const active = mode === m
+          return (
+            <button
+              key={m}
+              onClick={() => onModeChange(m)}
+              title={desc}
+              aria-pressed={active}
+              className={clsx(
+                'group relative flex flex-col items-center gap-2 py-3.5 rounded-xl border text-xs font-semibold',
+                'transition-all duration-200 active:scale-95',
+                active
+                  ? 'border-brand-500 bg-brand-500/15 text-brand-200 shadow-glow-brand'
+                  : 'border-dark-600 bg-dark-800 text-dark-400 hover:border-brand-500/40 hover:bg-dark-750 hover:text-dark-100 hover:-translate-y-0.5',
+              )}
+            >
+              <Icon size={20} className={clsx('transition-transform duration-200', active ? 'scale-110' : 'group-hover:scale-110')} />
+              {label}
+              {active && <span className="absolute -bottom-px left-1/2 -translate-x-1/2 h-0.5 w-8 rounded-full bg-brand-400" />}
+            </button>
+          )
+        })}
       </div>
 
       {/* Match picker */}

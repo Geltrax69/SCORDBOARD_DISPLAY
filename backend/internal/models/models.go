@@ -114,6 +114,7 @@ const (
 	EventSubstitution  = "substitution"
 	EventAnnouncement  = "announcement"
 	EventDisplayLayout = "display_layout_change"
+	EventSponsorShow   = "sponsor_show"
 )
 
 type ScorePayload struct {
@@ -136,6 +137,34 @@ type SubstitutionPayload struct {
 
 type AnnouncementPayload struct {
 	Message  string `json:"message"`
+	Duration int    `json:"duration"`
+	ImageURL string `json:"image_url,omitempty"`
+	Title    string `json:"title,omitempty"`
+}
+
+type SponsorPayload struct {
+	Title    string `json:"title"`
+	ImageURL string `json:"image_url"`
+	Duration int    `json:"duration"`
+}
+
+// DisplayAsset is a reusable sponsor card or announcement the admin pre-builds
+// once and pushes to the display with a single click.
+type DisplayAsset struct {
+	ID        string    `json:"id"`
+	Type      string    `json:"type"` // "sponsor" | "announcement"
+	Title     string    `json:"title"`
+	Body      string    `json:"body"`
+	ImageURL  string    `json:"image_url"`
+	Duration  int       `json:"duration"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type CreateDisplayAssetRequest struct {
+	Type     string `json:"type" binding:"required"`
+	Title    string `json:"title"`
+	Body     string `json:"body"`
+	ImageURL string `json:"image_url"`
 	Duration int    `json:"duration"`
 }
 

@@ -4,6 +4,7 @@ import type {
   User, Tournament, Court, Match, Event, MatchState, Player,
   CreateMatchPayload, DisplayLayoutPayload, TimeoutPayload,
   SubstitutionPayload, ScorePayload, PlayerInput, DeviceInfo, ServerInfo,
+  DisplayAsset,
 } from '@/types'
 
 const BASE = import.meta.env.VITE_API_URL ?? '/api'
@@ -116,6 +117,24 @@ export const endTimeout = (matchId: string) => createEvent(matchId, 'timeout_end
 
 export const createSubstitution = (matchId: string, payload: SubstitutionPayload) =>
   createEvent(matchId, 'substitution', payload as unknown as Record<string, unknown>)
+
+// Sponsor / announcement library
+export const listDisplayAssets = () =>
+  api.get<DisplayAsset[]>('/display-assets').then((r) => r.data)
+
+export const createDisplayAsset = (data: {
+  type: 'sponsor' | 'announcement'
+  title?: string
+  body?: string
+  image_url?: string
+  duration?: number
+}) => api.post<DisplayAsset>('/display-assets', data).then((r) => r.data)
+
+export const deleteDisplayAsset = (id: string) =>
+  api.delete(`/display-assets/${id}`)
+
+export const showDisplayAsset = (id: string) =>
+  api.post(`/display-assets/${id}/show`)
 
 // Announcements & Display
 export const announce = (message: string, duration = 10) =>
