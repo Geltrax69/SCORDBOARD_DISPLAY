@@ -57,11 +57,15 @@ func (h *WebSocketHandler) Connect(c *gin.Context) {
 		return
 	}
 
-	// Determine rooms and match info
+	// Determine rooms and match info.
+	// A device (scorer) token carries a match_id claim — that scorer is LOCKED to
+	// its own match: it never joins the global fan-out, so it can't receive (or be
+	// switched to) another court's match. Admins/displays join global as usual.
 	var rooms []string
+	isDevice := tokenMatchID != ""
 	matchID := c.Param("id")
-	if matchID == "" {
-		matchID = tokenMatchID
+	if isDevice {
+		matchID = tokenMatchID // ignore any route id — scorer is scoped to its token's match
 	}
 
 	matchCode := ""
@@ -73,7 +77,9 @@ func (h *WebSocketHandler) Connect(c *gin.Context) {
 			matchName = m.TeamA + " vs " + m.TeamB
 		}
 	}
-	rooms = append(rooms, "global")
+	if !isDevice {
+		rooms = append(rooms, "global")
+	}
 
 	client := ws_pkg.NewClient(h.hub, conn, userID, role, ipAddress, deviceName, matchID, matchCode, matchName, rooms)
 	h.hub.Register(client)

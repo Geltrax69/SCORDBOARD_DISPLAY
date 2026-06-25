@@ -15,8 +15,9 @@ import { useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Play, Square, Timer, PauseCircle,
   AlertTriangle, ArrowDownUp, ExternalLink, Minus,
-  StopCircle, Trash2, CheckCircle2, XCircle,
+  StopCircle, Trash2, CheckCircle2, XCircle, Download,
 } from 'lucide-react'
+import { downloadMatchCsv } from '@/utils/matchCsv'
 import { addScore, removeScore } from '@/services/api'
 
 type BtnState = 'loading' | 'success' | 'error'
@@ -345,7 +346,16 @@ export default function MatchControl() {
 
         {/* Event history */}
         <div className="card-hi p-5">
-          <p className="text-xs font-bold text-dark-600 uppercase tracking-widest mb-4">Event History</p>
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-xs font-bold text-dark-600 uppercase tracking-widest">Event History</p>
+            <button
+              onClick={() => downloadMatchCsv(m, events)}
+              disabled={events.length === 0}
+              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-brand-500/15 text-brand-200 hover:bg-brand-500/25 disabled:opacity-40 transition-all active:scale-95"
+            >
+              <Download size={13} /> Export CSV
+            </button>
+          </div>
           <EventHistory events={events} />
         </div>
       </div>

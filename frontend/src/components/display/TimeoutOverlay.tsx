@@ -6,9 +6,13 @@ interface Props {
   payload: TimeoutPayload
   match: Match
   onEnd?: () => void
+  // When multiple matches are on screen, the full-screen takeover only holds for
+  // a few seconds, then hands back to the grid (the timed-out cell keeps showing
+  // TIMEOUT). When undefined, it runs the full countdown (single-match display).
+  autoDismissSeconds?: number
 }
 
-export function TimeoutOverlay({ payload, match, onEnd }: Props) {
+export function TimeoutOverlay({ payload, match, onEnd, autoDismissSeconds }: Props) {
   const [remaining, setRemaining] = useState(payload.duration)
   const overlayRef = useRef<HTMLDivElement>(null)
   const countdownRef = useRef<HTMLDivElement>(null)
@@ -22,6 +26,17 @@ export function TimeoutOverlay({ payload, match, onEnd }: Props) {
       { opacity: 1, scale: 1, duration: 0.5, ease: 'power3.out' },
     )
   }, [])
+
+  // In multi-match mode, hold the full-screen takeover briefly, then return to grid.
+  useEffect(() => {
+    if (!autoDismissSeconds) return
+    const t = setTimeout(() => {
+      if (overlayRef.current) {
+        gsap.to(overlayRef.current, { opacity: 0, scale: 0.95, duration: 0.4, onComplete: onEnd })
+      } else { onEnd?.() }
+    }, autoDismissSeconds * 1000)
+    return () => clearTimeout(t)
+  }, [autoDismissSeconds, onEnd])
 
   // Countdown
   useEffect(() => {

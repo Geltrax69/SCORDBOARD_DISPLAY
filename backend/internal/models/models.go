@@ -115,7 +115,24 @@ const (
 	EventAnnouncement  = "announcement"
 	EventDisplayLayout = "display_layout_change"
 	EventSponsorShow   = "sponsor_show"
+	EventServeSet      = "serve_set" // referee sets who serves first (toss)
 )
+
+// Sepak takraw set targets: sets 1-2 play to 21 (cap 25); the deciding 3rd set
+// (tie-break) plays to 15 (cap 17). deuceAt is the score at which serve and the
+// win condition switch to "win by 2 / first to cap".
+func setLimits(setIdx int) (target, capPts, deuceAt int) {
+	if setIdx >= 2 {
+		return 15, 17, 14
+	}
+	return 21, 25, 20
+}
+
+// setWon reports whether score x beats y under sepak takraw rules: reach target
+// with a 2-point lead, or be first to the cap.
+func setWon(x, y, target, capPts int) bool {
+	return (x >= target && x-y >= 2) || x >= capPts
+}
 
 type ScorePayload struct {
 	Team   string `json:"team"`
@@ -169,18 +186,28 @@ type CreateDisplayAssetRequest struct {
 }
 
 type DisplayLayoutPayload struct {
-	Mode     int      `json:"mode"`
-	MatchIDs []string `json:"match_ids"`
+	Mode                int      `json:"mode"`
+	MatchIDs            []string `json:"match_ids"`
+	ShowPlayerAnimation bool     `json:"show_player_animation"`
 }
 
 type MatchState struct {
-	ScoreA         int             `json:"score_a"`
+	ScoreA         int             `json:"score_a"` // points in the CURRENT set
 	ScoreB         int             `json:"score_b"`
 	Status         string          `json:"status"`
 	TimerSeconds   int             `json:"timer_seconds"`
 	TimerRunning   bool            `json:"timer_running"`
 	CurrentTimeout *TimeoutPayload `json:"current_timeout,omitempty"`
 	Winner         string          `json:"winner,omitempty"`
+
+	// Sepak takraw: best-of-3 sets, rally scoring, serve rotation.
+	SetsA         int        `json:"sets_a"`         // sets won by A
+	SetsB         int        `json:"sets_b"`         // sets won by B
+	SetNumber     int        `json:"set_number"`     // current set, 1-based
+	CompletedSets [][2]int   `json:"completed_sets"` // finished set scores [a,b]
+	Serving       string     `json:"serving"`        // "A" | "B" — who serves the next rally
+	SetPoint      string     `json:"set_point,omitempty"`   // team one point from winning the set
+	MatchPoint    string     `json:"match_point,omitempty"` // team one point from winning the match
 }
 
 func CalculateState(events []Event) MatchState {
@@ -200,12 +227,46 @@ func CalculateState(events []Event) MatchState {
 		}
 	}
 
+	// Sepak takraw set tracking. Each rally is one point in the current set; when
+	// a set's win condition is met it closes, sides swap, and play moves to the
+	// next set. firstServer is the toss winner (set via serve_set, default A).
+	firstServer := "A"
+	setIdx := 0
+	matchOver := false
+	closeSet := func() {
+		target, capPts, _ := setLimits(setIdx)
+		a, b := state.ScoreA, state.ScoreB
+		if !setWon(a, b, target, capPts) && !setWon(b, a, target, capPts) {
+			return
+		}
+		state.CompletedSets = append(state.CompletedSets, [2]int{a, b})
+		if a > b {
+			state.SetsA++
+		} else {
+			state.SetsB++
+		}
+		state.ScoreA, state.ScoreB = 0, 0
+		if state.SetsA == 2 || state.SetsB == 2 {
+			matchOver = true
+		} else {
+			setIdx++
+		}
+	}
+
 	for _, e := range events {
 		if e.Undone {
 			continue
 		}
 		switch e.Type {
+		case EventServeSet:
+			var p ScorePayload
+			if err := json.Unmarshal(e.Payload, &p); err == nil && (p.Team == "A" || p.Team == "B") {
+				firstServer = p.Team
+			}
 		case EventScoreUpdate:
+			if matchOver {
+				break
+			}
 			var p ScorePayload
 			if err := json.Unmarshal(e.Payload, &p); err == nil {
 				if p.Team == "A" {
@@ -213,6 +274,7 @@ func CalculateState(events []Event) MatchState {
 				} else {
 					state.ScoreB += p.Points
 				}
+				closeSet()
 			}
 		case EventScoreRemove:
 			var p ScorePayload
@@ -231,6 +293,8 @@ func CalculateState(events []Event) MatchState {
 			}
 		case EventMatchStart:
 			state.Status = "active"
+			// Clock does NOT start here — the pre-match intro plays first, then the
+			// referee starts the clock (timer_start) when play actually begins.
 		case EventMatchEnd:
 			state.Status = "completed"
 			state.TimerRunning = false
@@ -261,6 +325,11 @@ func CalculateState(events []Event) MatchState {
 		case EventTimeoutEnd:
 			state.CurrentTimeout = nil
 			state.Status = "active"
+			// Stays paused after a timeout — referee resumes the clock manually.
+		case EventSubstitution:
+			// A substitution stops the clock; referee resumes when play restarts.
+			state.TimerRunning = false
+			stopTimer(e.CreatedAt)
 		}
 	}
 
@@ -269,6 +338,64 @@ func CalculateState(events []Event) MatchState {
 		accumulated += time.Since(*lastStart).Seconds()
 	}
 	state.TimerSeconds = int(accumulated)
+
+	state.SetNumber = setIdx + 1
+	if state.CompletedSets == nil {
+		state.CompletedSets = [][2]int{}
+	}
+
+	// Match auto-completes when a team wins 2 sets (unless an explicit match_end
+	// already set the status/winner above).
+	if matchOver && state.Status != "completed" {
+		state.Status = "completed"
+		state.TimerRunning = false
+		if state.SetsA > state.SetsB {
+			state.Winner = "A"
+		} else {
+			state.Winner = "B"
+		}
+	}
+
+	// Serve: the set's first server alternates each set from the toss winner.
+	// Serve passes every 3 points; at deuce (both at deuceAt) it alternates every
+	// point. deuce can only begin at exactly deuceAt-deuceAt, so the switch count
+	// is a closed form over the current set's points.
+	flip := func(s string, n int) string {
+		if n%2 == 1 {
+			if s == "A" {
+				return "B"
+			}
+			return "A"
+		}
+		return s
+	}
+	setServer := flip(firstServer, setIdx)
+	_, _, deuceAt := setLimits(setIdx)
+	total := state.ScoreA + state.ScoreB
+	deuceTotal := 2 * deuceAt
+	if total < deuceTotal {
+		state.Serving = flip(setServer, total/3)
+	} else {
+		base := flip(setServer, deuceTotal/3)
+		state.Serving = flip(base, total-deuceTotal)
+	}
+
+	// Set point / match point: a team is at set point if one more point wins the
+	// current set; it's also match point if winning that set wins the match.
+	if !matchOver && state.Status != "completed" {
+		target, capPts, _ := setLimits(setIdx)
+		if setWon(state.ScoreA+1, state.ScoreB, target, capPts) {
+			state.SetPoint = "A"
+			if state.SetsA == 1 {
+				state.MatchPoint = "A"
+			}
+		} else if setWon(state.ScoreB+1, state.ScoreA, target, capPts) {
+			state.SetPoint = "B"
+			if state.SetsB == 1 {
+				state.MatchPoint = "B"
+			}
+		}
+	}
 
 	return state
 }

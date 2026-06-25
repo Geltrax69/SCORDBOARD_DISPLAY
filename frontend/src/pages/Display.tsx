@@ -33,6 +33,7 @@ type OverlayState =
   | { type: 'countdown'; match: Match; players: Player[]; pendingState: MatchState }
   | { type: 'lineup'; match: Match; players: Player[] }
   | { type: 'timeout'; payload: TimeoutPayload; match: Match }
+  | { type: 'courtchange'; match: Match; nextSet: number }
   | { type: 'substitution'; payload: SubstitutionPayload; match: Match }
   | { type: 'announcement'; payload: AnnouncementPayload }
   | { type: 'sponsor'; payload: SponsorPayload }
@@ -47,6 +48,8 @@ export default function Display() {
 
   const [mode, setMode]             = useState<1|2|3|4|5>(1)
   const [matchIds, setMatchIds]     = useState<string[]>(singleMatchId ? [singleMatchId] : [])
+  // Pre-match player spotlight intro — off by default, toggled from admin.
+  const [showPlayerAnim, setShowPlayerAnim] = useState(false)
   const [liveMatches, setLiveMatches] = useState<Record<string, LiveMatch>>({})
   const [players, setPlayers]       = useState<Record<string, Player[]>>({})
   const [overlay, setOverlay]       = useState<OverlayState>({ type: 'none' })
@@ -82,6 +85,7 @@ export default function Display() {
             const layout = await res.json()
             if (layout.mode) setMode(layout.mode)
             if (layout.match_ids?.length) ids = layout.match_ids
+            setShowPlayerAnim(!!layout.show_player_animation)
           }
         } catch {}
       }
@@ -127,13 +131,23 @@ export default function Display() {
       case 'match_end':
       case 'timeout_end': {
         if (match_id && payload.match && payload.state) {
+          // The deciding point auto-completes the match (status flips to
+          // "completed"); fire the takeover when it does, not just on match_end.
+          const justCompleted = payload.state.status === 'completed' &&
+            liveMatches[match_id]?.state.status !== 'completed'
+          // A finished set (but not the match) triggers the 2-minute court change.
+          const prevSets = liveMatches[match_id]?.state.completed_sets?.length ?? 0
+          const setJustFinished = type === 'score_update' &&
+            payload.state.status !== 'completed' &&
+            (payload.state.completed_sets?.length ?? 0) > prevSets
           setLiveMatches((prev) => ({ ...prev, [match_id]: { match: payload.match!, state: payload.state! } }))
+          if (type === 'match_end' || justCompleted) {
+            setCelebrating({ match: payload.match, state: payload.state })
+          } else if (setJustFinished) {
+            setOverlay({ type: 'courtchange', match: payload.match, nextSet: payload.state.set_number })
+          }
         }
         if (type === 'timeout_end') setOverlay({ type: 'none' })
-        // A finished match takes over the screen, then reflows out of the grid.
-        if (type === 'match_end' && match_id && payload.match && payload.state) {
-          setCelebrating({ match: payload.match, state: payload.state })
-        }
         break
       }
       case 'match_start': {
@@ -178,10 +192,11 @@ export default function Display() {
         break
       }
       case 'display_layout_change': {
-        const p = payload as unknown as { mode: 1|2|3|4|5; match_ids: string[] }
+        const p = payload as unknown as { mode: 1|2|3|4|5; match_ids: string[]; show_player_animation?: boolean }
         if (p.mode) {
           setMode(p.mode)
           setMatchIds(p.match_ids ?? [])
+          setShowPlayerAnim(!!p.show_player_animation)
           setDismissed(new Set()) // fresh selection — clear prior reflow state
           setCelebrating(null)
           // Fetch any matches we don't have yet — the grid reflows via Flip.
@@ -267,7 +282,7 @@ export default function Display() {
         ) : visibleList.length === 0 ? (
           <EmptyDisplay label="Waiting for matches" />
         ) : (
-          <MatchGrid matches={visibleList} players={players} />
+          <MatchGrid matches={visibleList} players={players} showPlayerAnim={showPlayerAnim} />
         )}
       </div>
 
@@ -302,7 +317,15 @@ export default function Display() {
         <TimeoutOverlay
           payload={overlay.payload}
           match={overlay.match}
+          autoDismissSeconds={visibleList.length > 1 ? 5 : undefined}
           onEnd={() => setOverlay({ type: 'none' })}
+        />
+      )}
+      {overlay.type === 'courtchange' && (
+        <CourtChangeOverlay
+          match={overlay.match}
+          nextSet={overlay.nextSet}
+          onDone={() => setOverlay({ type: 'none' })}
         />
       )}
       {overlay.type === 'substitution' && (
@@ -510,7 +533,7 @@ function CountdownOverlay({ match: m, onDone }: { match: Match; onDone: () => vo
 }
 
 // ── Pre-match intro — shown when status === 'pending' ────────────────────────
-function PreMatchIntro({ m, players }: { m: Match; players: Player[] }) {
+function PreMatchIntro({ m, players, showPlayerAnim }: { m: Match; players: Player[]; showPlayerAnim: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
   const logosSceneRef = useRef<HTMLDivElement>(null)
   const playerSceneRef = useRef<HTMLDivElement>(null)
@@ -678,32 +701,38 @@ function PreMatchIntro({ m, players }: { m: Match; players: Player[] }) {
           { opacity: 1, scale: 1, rotation: 0, duration: 0.5, ease: 'back.out(1.8)' },
           '-=0.35',
         )
+        // Logo bob. When the player-spotlight toggle is OFF, the intro stays on
+        // this opener and loops the bob forever — scene 2 is never entered.
         .to([logoARef.current, logoBRef.current], {
           y: -10,
           duration: 1.2,
           yoyo: true,
-          repeat: 1,
+          repeat: showPlayerAnim ? 1 : -1,
           ease: 'sine.inOut',
           stagger: 0.15,
         })
-        .to(logosSceneRef.current, { autoAlpha: 0, duration: 0.45, ease: 'power2.in' }, '+=0.1')
-        .set(playerSceneRef.current, { autoAlpha: 1 })
-        .fromTo(playerSceneRef.current, { opacity: 0, scale: 1.02 }, { opacity: 1, scale: 1, duration: 0.55, ease: 'power2.out' })
-        .fromTo(topBarRef.current, { opacity: 0, y: -24 }, { opacity: 1, y: 0, duration: 0.45 }, '-=0.3')
-        .call(() => {
-          const maskObj = { frame: 0 }
-          setMaskFrame(0)
-          gsap.to(maskObj, {
-            frame: 29,
-            duration: 0.6,
-            ease: 'steps(29)',
-            onUpdate: () => setMaskFrame(Math.round(maskObj.frame)),
-            onComplete: () => {
-              setMaskFrame(null)
-              setPlayerPhase(true) // Ensure playerPhase only triggers AFTER mask reveal completes
-            }
-          })
-        }, undefined, '-=0.2')
+
+      if (showPlayerAnim) {
+        intro
+          .to(logosSceneRef.current, { autoAlpha: 0, duration: 0.45, ease: 'power2.in' }, '+=0.1')
+          .set(playerSceneRef.current, { autoAlpha: 1 })
+          .fromTo(playerSceneRef.current, { opacity: 0, scale: 1.02 }, { opacity: 1, scale: 1, duration: 0.55, ease: 'power2.out' })
+          .fromTo(topBarRef.current, { opacity: 0, y: -24 }, { opacity: 1, y: 0, duration: 0.45 }, '-=0.3')
+          .call(() => {
+            const maskObj = { frame: 0 }
+            setMaskFrame(0)
+            gsap.to(maskObj, {
+              frame: 29,
+              duration: 0.6,
+              ease: 'steps(29)',
+              onUpdate: () => setMaskFrame(Math.round(maskObj.frame)),
+              onComplete: () => {
+                setMaskFrame(null)
+                setPlayerPhase(true) // Ensure playerPhase only triggers AFTER mask reveal completes
+              }
+            })
+          }, undefined, '-=0.2')
+      }
 
       // Ambient loops across the whole intro screen
       gsap.to('.pi-glow-a', { opacity: 0.5, scale: 1.22, duration: 3.2, repeat: -1, yoyo: true, ease: 'sine.inOut' })
@@ -717,13 +746,25 @@ function PreMatchIntro({ m, players }: { m: Match; players: Player[] }) {
         { xPercent: 220, opacity: 0, duration: 1.2, ease: 'power1.inOut', repeat: -1, repeatDelay: 4.6, delay: 2.8 },
       )
       gsap.to('.pi-bar', { opacity: 0.45, duration: 1.8, repeat: -1, yoyo: true, ease: 'sine.inOut' })
+
+      // While the opener loops (player spotlight off), keep it breathing so it
+      // never reads as a frozen frame. Starts after the intro reveal settles.
+      if (!showPlayerAnim) {
+        gsap.to('.pi-ls-dot', {
+          scale: 1.7, opacity: 0.5, duration: 1, repeat: -1, yoyo: true,
+          ease: 'sine.inOut', stagger: 0.25, transformOrigin: 'center',
+        })
+        gsap.to(vsRef.current, {
+          scale: 1.07, duration: 1.9, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 1.4,
+        })
+      }
     }, el)
 
     return () => {
       setPlayerPhase(false)
       ctx.revert()
     }
-  }, [m.id])
+  }, [m.id, showPlayerAnim])
 
   // ── Player spotlight cycling after the logo opener ──────────────────────
   useEffect(() => {
@@ -890,9 +931,9 @@ function PreMatchIntro({ m, players }: { m: Match; players: Player[] }) {
       {/* ── Scene 1: Logo opener (full screen) ── */}
       <div ref={logosSceneRef} className="absolute inset-0 z-20 flex flex-col items-center justify-center px-8">
         <div className="pi-ls-badge mb-7 flex items-center gap-3 text-amber-400 text-sm font-black uppercase tracking-[0.35em]">
-          <span className="h-2 w-2 rounded-full bg-amber-400" />
+          <span className="pi-ls-dot h-2 w-2 rounded-full bg-amber-400" />
           Match Starting Soon
-          <span className="h-2 w-2 rounded-full bg-amber-400" />
+          <span className="pi-ls-dot h-2 w-2 rounded-full bg-amber-400" />
         </div>
 
         <div className="flex items-center justify-center gap-10 sm:gap-20">
@@ -1147,7 +1188,43 @@ function PreMatchIntro({ m, players }: { m: Match; players: Player[] }) {
   )
 }
 
-function SingleMatchDisplay({ lm, players }: { lm: LiveMatch; players: Player[] }) {
+// Pulsing ball shown next to the team serving the next rally.
+// Clear "to serve" badge — a pulsing ball + SERVE label in the team's colour,
+// so it's obvious which side serves the next rally.
+function ServeBall({ show, size = 'clamp(0.9rem, 1.4vw, 1.6rem)', color = '#fbbf24' }: { show: boolean; size?: string; color?: string }) {
+  if (!show) return null
+  return (
+    <span className="inline-block rounded-full flex-shrink-0 align-middle animate-pulse"
+      style={{ width: size, height: size, background: color, boxShadow: `0 0 16px ${color}, 0 0 4px ${color}` }}
+      title="Serving next rally" />
+  )
+}
+
+// 2-minute interval between sets while the teams change ends.
+function CourtChangeOverlay({ match, nextSet, onDone }: { match: Match; nextSet: number; onDone: () => void }) {
+  const [remaining, setRemaining] = useState(120)
+  useEffect(() => {
+    if (remaining <= 0) { onDone(); return }
+    const t = setTimeout(() => setRemaining((r) => r - 1), 1000)
+    return () => clearTimeout(t)
+  }, [remaining, onDone])
+  const mm = Math.floor(remaining / 60)
+  const ss = String(remaining % 60).padStart(2, '0')
+  return (
+    <div className="fixed inset-0 z-[70] flex flex-col items-center justify-center bg-[#020611]/95 backdrop-blur-sm">
+      <p className="text-white/40 text-lg font-black uppercase tracking-[0.4em] mb-4">{match.court_name || 'Court'}</p>
+      <p className="text-amber-400 font-black uppercase tracking-[0.3em] mb-6" style={{ fontSize: 'clamp(1.5rem, 4vw, 3rem)' }}>
+        Court Change
+      </p>
+      <div className="font-mono font-black tabular-nums text-white leading-none" style={{ fontSize: 'clamp(5rem, 16vw, 14rem)' }}>
+        {mm}:{ss}
+      </div>
+      <p className="text-white/50 text-xl font-bold uppercase tracking-widest mt-6">Set {Math.min(nextSet, 3)} next</p>
+    </div>
+  )
+}
+
+function SingleMatchDisplay({ lm, players, showPlayerAnim }: { lm: LiveMatch; players: Player[]; showPlayerAnim: boolean }) {
   const { match: m, state: s } = lm
   const scoreARef = useRef<HTMLDivElement>(null)
   const scoreBRef = useRef<HTMLDivElement>(null)
@@ -1176,7 +1253,7 @@ function SingleMatchDisplay({ lm, players }: { lm: LiveMatch; players: Player[] 
     }
   }, [s.score_b, m.team_b_color])
 
-  if (m.status === 'pending') return <PreMatchIntro m={m} players={players} />
+  if (m.status === 'pending') return <PreMatchIntro m={m} players={players} showPlayerAnim={showPlayerAnim} />
   if (m.status === 'completed') return <MatchCompletedCelebration lm={lm} />
 
   const status = ({ pending: 'NOT STARTED', active: 'LIVE', paused: 'PAUSED', timeout: 'TIMEOUT', completed: 'FINAL', cancelled: 'CANCELLED' } as Record<string,string>)[m.status] ?? m.status.toUpperCase()
@@ -1206,13 +1283,22 @@ function SingleMatchDisplay({ lm, players }: { lm: LiveMatch; players: Player[] 
           )}
         </div>
 
-        {/* Centre: status badge */}
-        <span
-          className="text-sm font-black uppercase tracking-widest px-6 py-2 rounded-full border-2 whitespace-nowrap mt-0.5"
-          style={{ color: statusColor, borderColor: `${statusColor}55`, backgroundColor: `${statusColor}12` }}
-        >
-          {status}
-        </span>
+        {/* Centre: status badge + set/match point */}
+        <div className="flex flex-col items-center gap-2 mt-0.5">
+          <span
+            className="text-sm font-black uppercase tracking-widest px-6 py-2 rounded-full border-2 whitespace-nowrap"
+            style={{ color: statusColor, borderColor: `${statusColor}55`, backgroundColor: `${statusColor}12` }}
+          >
+            {status}
+          </span>
+          {(s.match_point || s.set_point) && m.status === 'active' && (
+            <span className="text-sm font-black uppercase tracking-widest px-5 py-1.5 rounded-full border-2 border-amber-400/60 bg-amber-400/15 text-amber-300 whitespace-nowrap animate-pulse">
+              {s.match_point
+                ? `Match Point · ${s.match_point === 'A' ? m.team_a : m.team_b}`
+                : `Set Point · ${s.set_point === 'A' ? m.team_a : m.team_b}`}
+            </span>
+          )}
+        </div>
 
         <div className="min-w-[160px] text-right">
           {m.court_name && (
@@ -1231,14 +1317,14 @@ function SingleMatchDisplay({ lm, players }: { lm: LiveMatch; players: Player[] 
               onError={(e) => (e.currentTarget.style.display = 'none')} />
           )}
           <p
-            className="font-black uppercase tracking-wider leading-none text-center"
+            className="font-black uppercase tracking-wider leading-none text-center flex items-center justify-center gap-3"
             style={{
               fontSize: 'clamp(2.2rem, 4.5vw, 5rem)',
               color: m.team_a_color,
               textShadow: `0 0 50px ${m.team_a_color}45`,
             }}
           >
-            {m.team_a}
+            <ServeBall show={s.serving === 'A' && m.status === 'active'} color={m.team_a_color} /> {m.team_a}
           </p>
           <div
             ref={scoreARef}
@@ -1265,14 +1351,14 @@ function SingleMatchDisplay({ lm, players }: { lm: LiveMatch; players: Player[] 
               onError={(e) => (e.currentTarget.style.display = 'none')} />
           )}
           <p
-            className="font-black uppercase tracking-wider leading-none text-center"
+            className="font-black uppercase tracking-wider leading-none text-center flex items-center justify-center gap-3"
             style={{
               fontSize: 'clamp(2.2rem, 4.5vw, 5rem)',
               color: m.team_b_color,
               textShadow: `0 0 50px ${m.team_b_color}45`,
             }}
           >
-            {m.team_b}
+            {m.team_b} <ServeBall show={s.serving === 'B' && m.status === 'active'} color={m.team_b_color} />
           </p>
           <div
             ref={scoreBRef}
@@ -1288,26 +1374,33 @@ function SingleMatchDisplay({ lm, players }: { lm: LiveMatch; players: Player[] 
         </div>
       </div>
 
-      {/* ── Timer — clean, no heavy box ── */}
-      <div className="flex-shrink-0 flex items-center justify-center pb-10 pt-3 relative z-10 gap-4">
-        <span
-          className={clsx(
-            'font-mono font-black tabular-nums leading-none transition-colors',
-            s.timer_running ? 'text-emerald-400' : 'text-white/18',
+      {/* ── Sets + timer ── */}
+      <div className="flex-shrink-0 flex flex-col items-center pb-10 pt-3 relative z-10 gap-2">
+        <div className="font-black uppercase tracking-[0.25em] text-white/45"
+          style={{ fontSize: 'clamp(0.9rem, 1.6vw, 1.5rem)' }}>
+          Set {Math.min(s.set_number || 1, 3)}
+          <span className="text-white/70 ml-3 tabular-nums">{s.sets_a ?? 0}<span className="text-white/30 mx-1">–</span>{s.sets_b ?? 0}</span>
+        </div>
+        <div className="flex items-center justify-center gap-4">
+          <span
+            className={clsx(
+              'font-mono font-black tabular-nums leading-none transition-colors',
+              s.timer_running ? 'text-emerald-400' : 'text-white/18',
+            )}
+            style={{ fontSize: 'clamp(2.8rem, 6vw, 6.5rem)' }}
+          >
+            {mins}:{secs}
+          </span>
+          {s.timer_running && (
+            <span className="h-3.5 w-3.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
           )}
-          style={{ fontSize: 'clamp(2.8rem, 6vw, 6.5rem)' }}
-        >
-          {mins}:{secs}
-        </span>
-        {s.timer_running && (
-          <span className="h-3.5 w-3.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
-        )}
+        </div>
       </div>
     </div>
   )
 }
 
-function CompactScore({ lm, index = 0, dense = false, players = [] }: { lm: LiveMatch; index?: number; dense?: boolean; players?: Player[] }) {
+function CompactScore({ lm, index = 0, dense = false, players = [], showPlayerAnim = false }: { lm: LiveMatch; index?: number; dense?: boolean; players?: Player[]; showPlayerAnim?: boolean }) {
   const { match: m, state: s } = lm
   const cardRef  = useRef<HTMLDivElement>(null)
   const scoreARef = useRef<HTMLDivElement>(null)
@@ -1349,17 +1442,33 @@ function CompactScore({ lm, index = 0, dense = false, players = [] }: { lm: Live
   const status = ({ active: 'LIVE', timeout: 'TIMEOUT', completed: 'FINAL', pending: 'PENDING', paused: 'PAUSED', cancelled: 'CANCELLED' } as Record<string,string>)[m.status] ?? m.status
   const statusColor = ({ active: '#10b981', timeout: '#f59e0b', completed: '#64748b', pending: '#64748b', paused: '#38bdf8', cancelled: '#ef4444' } as Record<string,string>)[m.status] ?? '#64748b'
   const isCompleted = m.status === 'completed'
-  const winnerKey = s.winner || (s.score_a > s.score_b ? 'A' : s.score_b > s.score_a ? 'B' : 'draw')
+  const winnerKey = s.winner || (s.sets_a > s.sets_b ? 'A' : s.sets_b > s.sets_a ? 'B' : 'draw')
   const scoreSize = dense ? 'clamp(2.8rem, 7vw, 5.5rem)' : 'clamp(4rem, 9vw, 8rem)'
+  // During play show current-set points; once finished show sets won as the result.
+  const dispA = isCompleted ? (s.sets_a ?? 0) : s.score_a
+  const dispB = isCompleted ? (s.sets_b ?? 0) : s.score_b
 
   // Match hasn't started yet → show the teams + line-ups ("who's playing"),
   // not a meaningless 0–0 scoreline.
   if (m.status === 'pending') {
-    return <CompactPreMatch lm={lm} index={index} dense={dense} players={players} />
+    return <CompactPreMatch lm={lm} index={index} dense={dense} players={players} showPlayerAnim={showPlayerAnim} />
   }
 
   return (
-    <div ref={cardRef} className="relative flex flex-col rounded-3xl border border-dark-700 bg-dark-900/60 overflow-hidden h-full">
+    <div ref={cardRef} className={clsx(
+        'relative flex flex-col rounded-3xl border bg-dark-900/60 overflow-hidden h-full',
+        m.status === 'timeout' ? 'border-amber-500/70' : 'border-dark-700',
+      )}
+      style={m.status === 'timeout' ? { boxShadow: '0 0 0 2px rgba(245,158,11,0.35), 0 0 40px rgba(245,158,11,0.15)' } : undefined}>
+      {/* Timeout banner for this court */}
+      {m.status === 'timeout' && (
+        <div className="absolute inset-x-0 top-1.5 z-20 flex justify-center pointer-events-none">
+          <span className="mt-2 flex items-center gap-2 text-amber-400 font-black uppercase tracking-[0.3em] text-sm px-4 py-1.5 rounded-full"
+            style={{ background: 'rgba(245,158,11,0.14)', border: '1px solid rgba(245,158,11,0.4)' }}>
+            <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" /> Time out
+          </span>
+        </div>
+      )}
       {/* Team-colour identity bar so each match is instantly distinguishable */}
       <div className="h-1.5 w-full flex-shrink-0"
         style={{ background: `linear-gradient(to right, ${m.team_a_color}, ${m.team_b_color})` }} />
@@ -1389,14 +1498,15 @@ function CompactScore({ lm, index = 0, dense = false, players = [] }: { lm: Live
             <img src={m.team_a_logo} alt="" className="h-10 w-10 object-contain rounded-lg"
               onError={(e) => (e.currentTarget.style.display = 'none')} />
           )}
-          <p className="text-sm font-bold uppercase tracking-wide flex items-center gap-1 text-center leading-tight"
+          <p className="text-sm font-bold uppercase tracking-wide flex items-center gap-1.5 text-center leading-tight"
              style={{ color: m.team_a_color }}>
             {isCompleted && winnerKey === 'A' && <span title="Winner">🏆</span>}
+            <ServeBall show={s.serving === 'A' && m.status === 'active'} size="0.6rem" />
             {m.team_a}
           </p>
           <div ref={scoreARef} className="font-black font-score tabular-nums leading-none"
             style={{ color: m.team_a_color, fontSize: scoreSize, filter: `drop-shadow(0 0 28px ${m.team_a_color}66)` }}>
-            {s.score_a}
+            {dispA}
           </div>
         </div>
 
@@ -1409,20 +1519,27 @@ function CompactScore({ lm, index = 0, dense = false, players = [] }: { lm: Live
             <img src={m.team_b_logo} alt="" className="h-10 w-10 object-contain rounded-lg"
               onError={(e) => (e.currentTarget.style.display = 'none')} />
           )}
-          <p className="text-sm font-bold uppercase tracking-wide flex items-center gap-1 text-center leading-tight"
+          <p className="text-sm font-bold uppercase tracking-wide flex items-center gap-1.5 text-center leading-tight"
              style={{ color: m.team_b_color }}>
             {m.team_b}
+            <ServeBall show={s.serving === 'B' && m.status === 'active'} size="0.6rem" />
             {isCompleted && winnerKey === 'B' && <span title="Winner">🏆</span>}
           </p>
           <div ref={scoreBRef} className="font-black font-score tabular-nums leading-none"
             style={{ color: m.team_b_color, fontSize: scoreSize, filter: `drop-shadow(0 0 28px ${m.team_b_color}66)` }}>
-            {s.score_b}
+            {dispB}
           </div>
         </div>
       </div>
 
-      {/* Timer */}
-      <div className="flex items-center justify-center pb-4 pt-1">
+      {/* Sets + timer */}
+      <div className="flex items-center justify-center gap-3 pb-4 pt-1">
+        {!isCompleted && (
+          <div className="font-black uppercase tracking-widest text-white/45 text-xs">
+            Set {Math.min(s.set_number || 1, 3)}
+            <span className="text-white/70 ml-1.5 tabular-nums">{s.sets_a ?? 0}–{s.sets_b ?? 0}</span>
+          </div>
+        )}
         <div className={clsx(
           'flex items-center gap-2 font-mono font-bold tabular-nums px-4 py-1.5 rounded-xl',
           dense ? 'text-lg' : 'text-2xl',
@@ -1440,7 +1557,7 @@ function CompactScore({ lm, index = 0, dense = false, players = [] }: { lm: Live
 // a compact cousin of the full-screen PreMatchIntro. It cycles each player one
 // at a time (photo, name, role, jersey) like a broadcast line-up reveal, rather
 // than a flat list of names.
-function CompactPreMatch({ lm, index = 0, dense = false, players = [] }: { lm: LiveMatch; index?: number; dense?: boolean; players?: Player[] }) {
+function CompactPreMatch({ lm, index = 0, dense = false, players = [], showPlayerAnim = false }: { lm: LiveMatch; index?: number; dense?: boolean; players?: Player[]; showPlayerAnim?: boolean }) {
   const { match: m } = lm
   const cardRef  = useRef<HTMLDivElement>(null)
   const photoRef = useRef<HTMLDivElement>(null)
@@ -1469,16 +1586,16 @@ function CompactPreMatch({ lm, index = 0, dense = false, players = [] }: { lm: L
     return () => ctx.revert()
   }, [index])
 
-  // Advance the spotlight.
+  // Advance the spotlight (only when the player animation is enabled).
   useEffect(() => {
-    if (order.length <= 1) return
+    if (!showPlayerAnim || order.length <= 1) return
     const id = setInterval(() => setIdx((i) => (i + 1) % order.length), 3600)
     return () => clearInterval(id)
-  }, [order.length])
+  }, [order.length, showPlayerAnim])
 
   // Animate each reveal (photo + text), transform/opacity only.
   useEffect(() => {
-    if (!order.length) return
+    if (!showPlayerAnim || !order.length) return
     const ctx = gsap.context(() => {
       gsap.fromTo(photoRef.current, { opacity: 0, scale: 1.08, xPercent: -5 },
         { opacity: 1, scale: 1, xPercent: 0, duration: 0.6, ease: 'power3.out' })
@@ -1486,7 +1603,7 @@ function CompactPreMatch({ lm, index = 0, dense = false, players = [] }: { lm: L
         { opacity: 1, y: 0, duration: 0.5, ease: 'power2.out', stagger: 0.07 })
     }, cardRef)
     return () => ctx.revert()
-  }, [idx, order.length])
+  }, [idx, order.length, showPlayerAnim])
 
   const p = order[idx]
   const isA = p?.team === 'A'
@@ -1501,16 +1618,12 @@ function CompactPreMatch({ lm, index = 0, dense = false, players = [] }: { lm: L
       <div className="h-1.5 w-full flex-shrink-0"
         style={{ background: `linear-gradient(to right, ${m.team_a_color}, ${m.team_b_color})` }} />
 
-      {/* Header — court · matchup · starting soon */}
+      {/* Header — court · starting soon */}
       <div className="flex items-center justify-between gap-2 px-5 pt-4 flex-shrink-0">
         <div className="min-w-0">
           <p className="text-white/90 font-black uppercase tracking-wide truncate"
              style={{ fontSize: dense ? '0.95rem' : '1.2rem' }}>{m.court_name || 'Court'}</p>
-          <div className="flex items-center gap-2 mt-0.5 text-xs">
-            <span className="font-bold uppercase" style={{ color: m.team_a_color }}>{m.team_a}</span>
-            <span className="text-dark-600">vs</span>
-            <span className="font-bold uppercase" style={{ color: m.team_b_color }}>{m.team_b}</span>
-          </div>
+          <p className="text-dark-500 text-xs font-mono">#{m.match_code}</p>
         </div>
         <span className="cpm-soon flex items-center gap-1.5 text-xs font-black uppercase tracking-widest px-3 py-1 rounded-full flex-shrink-0 text-amber-400"
           style={{ backgroundColor: '#f59e0b1a', border: '1px solid #f59e0b44' }}>
@@ -1518,9 +1631,25 @@ function CompactPreMatch({ lm, index = 0, dense = false, players = [] }: { lm: L
         </span>
       </div>
 
-      {/* Player spotlight (cycles) */}
-      {p ? (
-        <div className="flex-1 flex items-center gap-4 sm:gap-6 px-5 py-4 min-h-0 relative">
+      {/* Matchup band — big VS */}
+      <div className="flex items-center justify-center gap-3 sm:gap-5 px-5 pt-3 flex-shrink-0">
+        <div className="flex items-center gap-2 min-w-0 justify-end flex-1">
+          {m.team_a_logo && <img src={m.team_a_logo} alt="" className="h-8 w-8 object-contain rounded flex-shrink-0"
+            onError={(e) => (e.currentTarget.style.display = 'none')} />}
+          <span className="font-black uppercase tracking-wide truncate" style={{ color: m.team_a_color, fontSize: dense ? '0.95rem' : '1.2rem' }}>{m.team_a}</span>
+        </div>
+        <span className="font-black text-white/25 leading-none select-none flex-shrink-0"
+          style={{ fontSize: dense ? '1.8rem' : '2.8rem', textShadow: '0 2px 8px rgba(0,0,0,0.4)' }}>VS</span>
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <span className="font-black uppercase tracking-wide truncate" style={{ color: m.team_b_color, fontSize: dense ? '0.95rem' : '1.2rem' }}>{m.team_b}</span>
+          {m.team_b_logo && <img src={m.team_b_logo} alt="" className="h-8 w-8 object-contain rounded flex-shrink-0"
+            onError={(e) => (e.currentTarget.style.display = 'none')} />}
+        </div>
+      </div>
+
+      {/* Player spotlight (cycles) — only when the toggle is on */}
+      {showPlayerAnim && p ? (
+        <div className="flex-1 flex items-center gap-4 sm:gap-6 px-6 py-4 min-h-0 relative">
           {/* team-colour ambient wash */}
           <div className="absolute inset-0 pointer-events-none"
             style={{ background: `radial-gradient(ellipse at 30% 60%, ${color}22 0%, transparent 60%)` }} />
@@ -1528,30 +1657,26 @@ function CompactPreMatch({ lm, index = 0, dense = false, players = [] }: { lm: L
           <div className="absolute right-3 bottom-1 font-black uppercase leading-none select-none pointer-events-none"
             style={{ color: `${color}14`, fontSize: dense ? '3.5rem' : '6rem' }}>{teamName.slice(0, 3)}</div>
 
-          {/* photo */}
-          <div ref={photoRef} className="relative h-full aspect-[4/5] flex-shrink-0 rounded-2xl overflow-hidden z-10"
-            style={{ maxHeight: dense ? '11rem' : '18rem', border: `2px solid ${color}66`, boxShadow: `0 0 32px ${color}33` }}>
-            {p.photo_url ? (
-              <img src={p.photo_url} alt={p.name} className="h-full w-full object-cover"
-                onError={(e) => { (e.currentTarget.style.display = 'none') }} />
-            ) : (
-              <div className="h-full w-full flex items-center justify-center bg-dark-850"
-                style={{ background: `linear-gradient(160deg, ${color}26, transparent)` }}>
-                {teamLogo
-                  ? <img src={teamLogo} alt="" className="h-1/2 w-1/2 object-contain opacity-80" onError={(e) => (e.currentTarget.style.display = 'none')} />
-                  : <span className="text-5xl font-black" style={{ color }}>{p.name.charAt(0)}</span>}
-              </div>
-            )}
-            {/* jersey chip */}
-            <div className="absolute top-2 left-2 h-7 min-w-7 px-1.5 rounded-lg flex items-center justify-center text-sm font-black tabular-nums"
-              style={{ background: color, color: '#fff' }}>{p.jersey_number || '–'}</div>
-          </div>
+          {/* photo — ONLY when the player actually has one */}
+          {p.photo_url && (
+            <div ref={photoRef} className="relative h-full aspect-[4/5] flex-shrink-0 rounded-2xl overflow-hidden z-10"
+              style={{ maxHeight: dense ? '11rem' : '18rem', border: `2px solid ${color}66`, boxShadow: `0 0 32px ${color}33` }}>
+              <img key={p.id} src={p.photo_url} alt={p.name} className="h-full w-full object-cover"
+                onError={(e) => { const b = e.currentTarget.parentElement; if (b) b.style.display = 'none' }} />
+            </div>
+          )}
 
-          {/* info */}
+          {/* info — jersey + name + role + team (always) */}
           <div ref={infoRef} className="flex-1 min-w-0 z-10">
-            <p className="cpm-line text-xs font-black uppercase tracking-[0.3em] mb-1" style={{ color }}>{role}</p>
-            <p className="cpm-line font-black uppercase tracking-tight leading-none text-white truncate"
-               style={{ fontSize: nameSize }}>{p.name}</p>
+            <p className="cpm-line text-xs font-black uppercase tracking-[0.3em] mb-2" style={{ color }}>{role}</p>
+            <div className="cpm-line flex items-center gap-3 mb-1">
+              <span className="flex items-center justify-center font-black tabular-nums rounded-xl flex-shrink-0"
+                style={{ background: color, color: '#fff', height: dense ? '2.2rem' : '3rem', minWidth: dense ? '2.2rem' : '3rem', padding: '0 0.5rem', fontSize: dense ? '1.1rem' : '1.6rem' }}>
+                {p.jersey_number || '–'}
+              </span>
+              <p className="font-black uppercase tracking-tight leading-none text-white truncate"
+                 style={{ fontSize: nameSize }}>{p.name}</p>
+            </div>
             <div className="cpm-line h-0.5 w-12 rounded-full my-3" style={{ background: color }} />
             <div className="cpm-line flex items-center gap-2">
               {teamLogo && <img src={teamLogo} alt="" className="h-6 w-6 object-contain rounded" onError={(e) => (e.currentTarget.style.display = 'none')} />}
@@ -1560,11 +1685,13 @@ function CompactPreMatch({ lm, index = 0, dense = false, players = [] }: { lm: L
           </div>
         </div>
       ) : (
-        <div className="flex-1 flex items-center justify-center text-dark-600 text-sm">Line-up to be announced</div>
+        <div className="flex-1 flex items-center justify-center text-dark-600 text-sm uppercase tracking-[0.3em] font-bold">
+          {showPlayerAnim ? 'Line-up to be announced' : 'Match starting soon'}
+        </div>
       )}
 
       {/* dots */}
-      {order.length > 1 && (
+      {showPlayerAnim && order.length > 1 && (
         <div className="flex items-center justify-center gap-1.5 pb-4 flex-shrink-0">
           {order.map((_, i) => (
             <span key={i} className="h-1.5 rounded-full transition-all"
@@ -1593,7 +1720,7 @@ function gridTemplate(n: number): { cols: string; rows: string } {
 // Auto-sizing match grid. When the set of matches changes, surviving cards
 // smoothly resize/reposition (GSAP Flip) while entering cards fade+scale in —
 // so 4→3, 2→3, 1→4, etc. all reflow like a broadcast director cut.
-function MatchGrid({ matches, players }: { matches: LiveMatch[]; players: Record<string, Player[]> }) {
+function MatchGrid({ matches, players, showPlayerAnim }: { matches: LiveMatch[]; players: Record<string, Player[]>; showPlayerAnim: boolean }) {
   const gridRef = useRef<HTMLDivElement>(null)
   const prevState = useRef<Flip.FlipState | null>(null)
   const n = matches.length
@@ -1625,8 +1752,8 @@ function MatchGrid({ matches, players }: { matches: LiveMatch[]; players: Record
       {matches.map((lm, i) => (
         <div key={lm.match.id} data-flip-id={lm.match.id} className="match-card min-h-0 min-w-0 flex flex-col">
           {n === 1
-            ? <SingleMatchDisplay lm={lm} players={players[lm.match.id] ?? []} />
-            : <CompactScore lm={lm} index={i} dense={dense} players={players[lm.match.id] ?? []} />}
+            ? <SingleMatchDisplay lm={lm} players={players[lm.match.id] ?? []} showPlayerAnim={showPlayerAnim} />
+            : <CompactScore lm={lm} index={i} dense={dense} players={players[lm.match.id] ?? []} showPlayerAnim={showPlayerAnim} />}
         </div>
       ))}
     </div>
@@ -1901,18 +2028,25 @@ function MatchCompletedCelebration({ lm }: { lm: LiveMatch }) {
         )}
 
         <div className="mt-8 pt-8 border-t border-white/5 w-full max-w-md">
-          <p className="text-white/30 text-xs font-bold uppercase tracking-wider mb-3">FINAL SCORE</p>
+          <p className="text-white/30 text-xs font-bold uppercase tracking-wider mb-3">SETS WON</p>
           <div className="flex items-center justify-center gap-6">
             <div className="text-right flex-1">
               <p className="text-sm font-semibold truncate" style={{ color: m.team_a_color }}>{m.team_a}</p>
-              <p className="text-4xl font-black font-score" style={{ color: m.team_a_color }}>{s.score_a}</p>
+              <p className="text-4xl font-black font-score" style={{ color: m.team_a_color }}>{s.sets_a ?? 0}</p>
             </div>
             <div className="text-white/20 text-2xl font-black">:</div>
             <div className="text-left flex-1">
               <p className="text-sm font-semibold truncate" style={{ color: m.team_b_color }}>{m.team_b}</p>
-              <p className="text-4xl font-black font-score" style={{ color: m.team_b_color }}>{s.score_b}</p>
+              <p className="text-4xl font-black font-score" style={{ color: m.team_b_color }}>{s.sets_b ?? 0}</p>
             </div>
           </div>
+          {s.completed_sets?.length > 0 && (
+            <p className="mt-4 text-white/40 text-sm font-bold tabular-nums tracking-wider">
+              {s.completed_sets.map(([a, b], i) => (
+                <span key={i} className="mx-1.5">{a}–{b}</span>
+              ))}
+            </p>
+          )}
         </div>
       </div>
     </div>

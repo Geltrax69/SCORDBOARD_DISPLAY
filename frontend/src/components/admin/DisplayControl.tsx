@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { clsx } from 'clsx'
-import { Monitor, Columns2, Grid2x2, Megaphone, Video, Tv, Send, Play, Check } from 'lucide-react'
+import { Monitor, Columns2, Grid2x2, Megaphone, Video, Tv, Send, Play, Check, Users } from 'lucide-react'
 import { Button } from '@/components/common/Button'
 import { setDisplayLayout, listDisplayAssets, showDisplayAsset } from '@/services/api'
 import { isVideoUrl } from '@/components/admin/DisplayAssetsControl'
@@ -27,6 +27,8 @@ export function DisplayControl({ matches }: Props) {
   const [pushed, setPushed]    = useState(false)
   const [assets, setAssets]    = useState<DisplayAsset[]>([])
   const [shownId, setShownId]  = useState<string | null>(null)
+  // Player intro animation on pending matches — off by default.
+  const [showPlayerAnim, setShowPlayerAnim] = useState(false)
 
   const maxSel = MAX_MATCHES[mode] ?? 0
   const assetType: 'announcement' | 'sponsor' | null = mode === 4 ? 'announcement' : mode === 5 ? 'sponsor' : null
@@ -55,7 +57,7 @@ export function DisplayControl({ matches }: Props) {
   const handlePush = async () => {
     setSending(true)
     try {
-      await setDisplayLayout({ mode, match_ids: selected })
+      await setDisplayLayout({ mode, match_ids: selected, show_player_animation: showPlayerAnim })
       setPushed(true)
       setTimeout(() => setPushed(false), 2500)
     } finally {
@@ -206,6 +208,36 @@ export function DisplayControl({ matches }: Props) {
             })}
           </div>
         </div>
+      )}
+
+      {/* Player intro animation toggle — only for match layouts (1/2/4). */}
+      {!assetType && (
+        <button
+          type="button"
+          onClick={() => setShowPlayerAnim((v) => !v)}
+          aria-pressed={showPlayerAnim}
+          className={clsx(
+            'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-all',
+            showPlayerAnim
+              ? 'border-brand-500 bg-brand-500/15 text-brand-100'
+              : 'border-dark-700 bg-dark-800 text-dark-300 hover:border-dark-500',
+          )}
+        >
+          <Users size={16} className={showPlayerAnim ? 'text-brand-300' : 'text-dark-500'} />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold">Player animation</p>
+            <p className="text-xs text-dark-500">Pre-match player spotlight intro</p>
+          </div>
+          <span className={clsx(
+            'relative h-5 w-9 rounded-full transition-colors flex-shrink-0',
+            showPlayerAnim ? 'bg-brand-500' : 'bg-dark-600',
+          )}>
+            <span className={clsx(
+              'absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all',
+              showPlayerAnim ? 'left-[18px]' : 'left-0.5',
+            )} />
+          </span>
+        </button>
       )}
 
       {/* Push button — only for match layouts (1/2/4). Assets push via Show. */}

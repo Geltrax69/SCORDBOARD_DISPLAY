@@ -37,6 +37,17 @@ function fmt(s: number) {
   return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
 }
 
+// ── Serve indicator ──────────────────────────────────────────────────────────
+// "to serve" badge (pulsing ball + SERVE label) next to the team serving next.
+function ServeBall({ show, color = '#fbbf24' }: { show: boolean; color?: string }) {
+  if (!show) return null
+  return (
+    <span title="Serving next rally"
+      className="inline-block h-2.5 w-2.5 rounded-full align-middle animate-pulse"
+      style={{ background: color, boxShadow: `0 0 8px ${color}` }} />
+  )
+}
+
 // ── Score button ────────────────────────────────────────────────────────────
 function ScoreBtn({ label, color, onClick, loading }: {
   label: string; color: string; onClick: () => void; loading?: boolean
@@ -45,7 +56,7 @@ function ScoreBtn({ label, color, onClick, loading }: {
     <button
       onClick={onClick}
       disabled={loading}
-      className="flex items-center justify-center rounded-2xl text-xl font-black transition-all active:scale-95 disabled:opacity-50 select-none"
+      className="w-full flex items-center justify-center rounded-2xl text-xl font-black transition-all active:scale-95 disabled:opacity-50 select-none"
       style={{
         backgroundColor: `${color}20`,
         border: `2px solid ${color}50`,
@@ -105,6 +116,9 @@ function ScorerPanel({ match: initialMatch, token: initialToken, onDisconnect }:
     })
 
     const unsub = scoreboardWS.subscribe((msg: WSMessage) => {
+      // Hard guard: this scorer only ever reacts to ITS OWN match, never another
+      // court's broadcast (prevents the phone from being switched to match 2).
+      if (msg.match_id && msg.match_id !== match.id) return
       // Selective update: only update relevant fields based on message type
       if (msg.payload?.match && msg.payload?.state) {
         setMatch(msg.payload.match)
@@ -165,6 +179,12 @@ function ScorerPanel({ match: initialMatch, token: initialToken, onDisconnect }:
   const status  = state?.status ?? match.status
   const scoreA  = state?.score_a ?? 0
   const scoreB  = state?.score_b ?? 0
+  const setsA   = state?.sets_a ?? 0
+  const setsB   = state?.sets_b ?? 0
+  const setNumber = state?.set_number ?? 1
+  const serving = state?.serving ?? ''
+  const setPoint = state?.set_point
+  const matchPoint = state?.match_point
   const running = state?.timer_running ?? false
   const pending = status === 'pending'
   const active  = status === 'active' || status === 'timeout'
@@ -218,29 +238,42 @@ function ScorerPanel({ match: initialMatch, token: initialToken, onDisconnect }:
         </h1>
       </div>
 
+      {/* Set / match point badge */}
+      {(setPoint || matchPoint) && !ended && (
+        <div className="text-center -mb-1">
+          <span className="text-xs font-black uppercase tracking-widest px-3 py-1 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/40">
+            {matchPoint ? `Match Point — ${matchPoint === 'A' ? match.team_a : match.team_b}`
+                        : `Set Point — ${setPoint === 'A' ? match.team_a : match.team_b}`}
+          </span>
+        </div>
+      )}
+
       {/* Scoreboard */}
       <div className="flex items-center justify-center gap-6 px-4 py-4">
         {/* Team A score */}
         <div className="flex-1 text-center">
-          <p className="text-xs font-bold uppercase tracking-wider mb-1" style={{ color: match.team_a_color }}>
-            {match.team_a}
+          <p className="text-xs font-bold uppercase tracking-wider mb-1 flex items-center justify-center gap-1.5" style={{ color: match.team_a_color }}>
+            <ServeBall show={serving === 'A' && active} color={match.team_a_color} /> {match.team_a}
           </p>
           <p className="text-7xl font-black leading-none tabular-nums" style={{ color: match.team_a_color }}>
             {scoreA}
           </p>
         </div>
 
-        {/* Timer */}
+        {/* Timer + sets */}
         <div className="text-center flex-shrink-0">
           <div className={`text-3xl font-black font-mono tabular-nums ${running ? 'text-[#22c55e]' : 'text-[#2b506f]'}`}>
             {fmt(timer)}
+          </div>
+          <div className="mt-1 text-xs font-bold text-[#5a86ae]">
+            Set {Math.min(setNumber, 3)} · <span className="tabular-nums">{setsA}–{setsB}</span>
           </div>
         </div>
 
         {/* Team B score */}
         <div className="flex-1 text-center">
-          <p className="text-xs font-bold uppercase tracking-wider mb-1" style={{ color: match.team_b_color }}>
-            {match.team_b}
+          <p className="text-xs font-bold uppercase tracking-wider mb-1 flex items-center justify-center gap-1.5" style={{ color: match.team_b_color }}>
+            {match.team_b} <ServeBall show={serving === 'B' && active} color={match.team_b_color} />
           </p>
           <p className="text-7xl font-black leading-none tabular-nums" style={{ color: match.team_b_color }}>
             {scoreB}
@@ -258,28 +291,19 @@ function ScorerPanel({ match: initialMatch, token: initialToken, onDisconnect }:
       {/* Divider */}
       <div className="h-px bg-[#1e3450] mx-4" />
 
-      {/* Score buttons — only when active */}
+      {/* Score buttons — rally scoring: one point per rally */}
       {active && !ended && (
         <div className="flex gap-3 px-4 mt-4">
-          {/* Team A buttons */}
-          <div className="flex-1 grid grid-cols-3 gap-2">
-            {[1, 2, 3].map(pts => (
-              <ScoreBtn key={pts} label={`+${pts}`} color={match.team_a_color}
-                loading={loading === `a${pts}`}
-                onClick={() => fire(`a${pts}`, 'score_update', { team: 'A', points: pts })} />
-            ))}
+          <div className="flex-1">
+            <ScoreBtn label="+1" color={match.team_a_color}
+              loading={loading === 'a1'}
+              onClick={() => fire('a1', 'score_update', { team: 'A', points: 1 })} />
           </div>
-
-          {/* Center divider */}
           <div className="w-px bg-[#1e3450] self-stretch" />
-
-          {/* Team B buttons */}
-          <div className="flex-1 grid grid-cols-3 gap-2">
-            {[1, 2, 3].map(pts => (
-              <ScoreBtn key={pts} label={`+${pts}`} color={match.team_b_color}
-                loading={loading === `b${pts}`}
-                onClick={() => fire(`b${pts}`, 'score_update', { team: 'B', points: pts })} />
-            ))}
+          <div className="flex-1">
+            <ScoreBtn label="+1" color={match.team_b_color}
+              loading={loading === 'b1'}
+              onClick={() => fire('b1', 'score_update', { team: 'B', points: 1 })} />
           </div>
         </div>
       )}
@@ -323,8 +347,37 @@ function ScorerPanel({ match: initialMatch, token: initialToken, onDisconnect }:
               ? <Loader size={18} className="animate-spin" />
               : running
                 ? <><PauseCircle size={20} /> Pause Timer</>
-                : <><Timer size={20} /> Start Timer</>}
+                : timer === 0
+                  ? <><Play size={20} /> Start Timer</>
+                  : <><Timer size={20} /> Resume Timer</>}
           </button>
+        )}
+
+        {/* First server (toss) — pick who serves before the match starts */}
+        {pending && (
+          <div>
+            <p className="text-xs text-[#3d6a91] font-semibold uppercase tracking-wider mb-1.5 text-center">First serve</p>
+            <div className="grid grid-cols-2 gap-2">
+              {(['A', 'B'] as const).map((team) => {
+                const color = team === 'A' ? match.team_a_color : match.team_b_color
+                const name  = team === 'A' ? match.team_a : match.team_b
+                const sel   = serving === team
+                return (
+                  <button key={team}
+                    onClick={() => fire(`serve_${team}`, 'serve_set', { team })}
+                    disabled={!!loading}
+                    className="flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-bold transition-all active:scale-95 disabled:opacity-50"
+                    style={{
+                      backgroundColor: sel ? `${color}22` : 'transparent',
+                      border: `2px solid ${sel ? color : '#1e3450'}`,
+                      color: sel ? color : '#3d6a91',
+                    }}>
+                    <ServeBall show={sel} /> {name}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
         )}
 
         {/* Start match */}

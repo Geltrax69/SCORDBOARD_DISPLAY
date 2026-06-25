@@ -46,8 +46,14 @@ func (h *Hub) Run() {
 		case client := <-h.register:
 			h.mu.Lock()
 			h.clients[client] = true
-			h.global[client] = true
+			// Only clients that explicitly subscribed to "global" (admins, displays)
+			// join the cross-match fan-out. Scorer devices are scoped to their own
+			// match room so they never receive another court's events.
 			for _, room := range client.rooms {
+				if room == "global" {
+					h.global[client] = true
+					continue
+				}
 				if h.rooms[room] == nil {
 					h.rooms[room] = make(map[*Client]bool)
 				}

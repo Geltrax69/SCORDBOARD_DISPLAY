@@ -54,13 +54,16 @@ export function AnnouncementOverlay({ message, duration, imageUrl, title, onDone
     >
       <div ref={textRef} className="text-center px-8 max-w-4xl flex flex-col items-center">
         {imageUrl ? (
-          <img
-            ref={imgRef}
-            src={imageUrl}
-            alt={title || 'Announcement'}
-            className="max-h-[40vh] max-w-[70vw] object-contain rounded-2xl mb-8 shadow-2xl"
-            onError={(e) => (e.currentTarget.style.display = 'none')}
-          />
+          // Fixed stage — small images scale up, large scale down (consistent size).
+          <div className="flex items-center justify-center mb-8" style={{ width: 'min(70vw, 900px)', height: 'min(42vh, 460px)' }}>
+            <img
+              ref={imgRef}
+              src={imageUrl}
+              alt={title || 'Announcement'}
+              className="w-full h-full object-contain rounded-2xl shadow-2xl"
+              onError={(e) => (e.currentTarget.style.display = 'none')}
+            />
+          </div>
         ) : (
           <div className="flex justify-center mb-6">
             <div className="p-4 rounded-full bg-brand-900/40 border border-brand-500/30">

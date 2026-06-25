@@ -77,12 +77,16 @@ export function SponsorOverlay({ title, imageUrl, duration, onDone }: Props) {
         <p ref={labelRef} className="text-dark-500 text-sm md:text-base font-bold uppercase tracking-[0.4em] mb-10">
           Proudly sponsored by
         </p>
-        <div className="relative overflow-hidden rounded-3xl">
+        {/* Fixed display stage — the logo always fills this area: small images
+            scale UP, large ones scale DOWN (object-contain keeps aspect ratio),
+            so presentation is consistent regardless of the source file size. */}
+        <div className="relative overflow-hidden rounded-3xl flex items-center justify-center"
+          style={{ width: 'min(78vw, 1100px)', height: 'min(62vh, 680px)' }}>
           <img
             ref={imgRef}
             src={imageUrl}
             alt={title || 'Sponsor'}
-            className="max-h-[55vh] max-w-[80vw] object-contain"
+            className="w-full h-full object-contain"
             onError={(e) => (e.currentTarget.style.display = 'none')}
           />
           {/* moving highlight sweep */}

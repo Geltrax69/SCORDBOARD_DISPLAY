@@ -58,6 +58,14 @@ export interface MatchState {
   timer_running: boolean
   current_timeout?: TimeoutPayload
   winner?: string
+  // Sepak takraw
+  sets_a: number
+  sets_b: number
+  set_number: number
+  completed_sets: [number, number][]
+  serving: 'A' | 'B' | ''
+  set_point?: 'A' | 'B'
+  match_point?: 'A' | 'B'
 }
 
 export type EventType =
@@ -123,6 +131,7 @@ export interface SponsorPayload {
 export interface DisplayLayoutPayload {
   mode: 1 | 2 | 3 | 4 | 5
   match_ids: string[]
+  show_player_animation?: boolean
 }
 
 export interface DisplayAsset {

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { login } from '@/services/api'
 import { useAuthStore } from '@/store/authStore'
-import { Trophy, Eye, EyeOff, Zap } from 'lucide-react'
+import { Eye, EyeOff, Zap } from 'lucide-react'
 
 export default function Login() {
   const navigate  = useNavigate()
@@ -41,13 +41,9 @@ export default function Login() {
       <div className="relative w-full max-w-[400px]">
         {/* Branding */}
         <div className="text-center mb-10">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-3xl
-                          bg-gradient-to-br from-brand-500 to-brand-700 shadow-glow-brand mb-5 animate-float">
-            <Trophy size={36} className="text-white" />
+          <div className="w-32 h-32 mx-auto mb-4 rounded-full bg-white flex items-center justify-center overflow-hidden shadow-glow-brand animate-float">
+            <img src="/logo.png" alt="ScoreCast" className="w-[125%] h-[125%] object-contain" />
           </div>
-          <h1 className="text-4xl font-black text-white tracking-tight">
-            Score<span className="text-brand-400">board</span>
-          </h1>
           <div className="flex items-center justify-center gap-2 mt-2">
             <Zap size={12} className="text-live" />
             <p className="text-dark-400 text-sm font-medium">Real-time sports scoring system</p>

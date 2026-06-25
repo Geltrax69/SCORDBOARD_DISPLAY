@@ -8,7 +8,7 @@ import Dashboard  from '@/pages/Dashboard'
 import MatchControl from '@/pages/MatchControl'
 import Display    from '@/pages/Display'
 import Connect    from '@/pages/Connect'
-import { Trophy, LogOut, LayoutDashboard, Monitor } from 'lucide-react'
+import { LogOut, LayoutDashboard, Monitor } from 'lucide-react'
 import { useWSStore } from '@/store/wsStore'
 
 function Navbar() {
@@ -24,14 +24,10 @@ function Navbar() {
     <header className="sticky top-0 z-30 h-14 flex items-center px-5 gap-5
                        border-b border-dark-850 bg-dark-925/80 backdrop-blur-md">
       {/* Logo */}
-      <Link to="/" className="flex items-center gap-2.5 flex-shrink-0 group">
-        <div className="relative h-8 w-8 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700
-                        flex items-center justify-center shadow-glow-brand/30 group-hover:shadow-glow-brand transition-all">
-          <Trophy size={16} className="text-white" />
+      <Link to="/" className="flex items-center flex-shrink-0">
+        <div className="h-10 w-10 rounded-full bg-white flex items-center justify-center overflow-hidden">
+          <img src="/logo.png" alt="ScoreCast" className="w-[135%] h-[135%] object-contain" />
         </div>
-        <span className="font-black text-base text-white tracking-tight hidden sm:block">
-          Score<span className="text-brand-400">board</span>
-        </span>
       </Link>
 
       {/* Nav links */}
