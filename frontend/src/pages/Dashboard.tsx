@@ -18,7 +18,7 @@ import {
   Trophy, MapPin, Zap, Plus, ExternalLink,
   Wifi, WifiOff, Copy, Check, ChevronRight,
   QrCode, Activity, TrendingUp, StopCircle, Trash2,
-  Upload, X, ImageIcon, Loader2,
+  Upload, X, ImageIcon, Loader2, CheckCircle2,
 } from 'lucide-react'
 
 import type { ServerInfo, PlayerInput, Match } from '@/types'
@@ -201,6 +201,9 @@ export default function Dashboard() {
 
   const isSuperAdmin  = user?.role === 'super_admin'
   const activeMatches = matches.filter((m) => m.status === 'active' || m.status === 'timeout')
+  const isDone        = (s: string) => s === 'completed' || s === 'cancelled'
+  const openMatches   = matches.filter((m) => !isDone(m.status))
+  const finishedMatches = matches.filter((m) => isDone(m.status))
 
   // ── Safe async runner: shows toast on error, never stays stuck (10s timeout) ──
   const safeRun = async (
@@ -312,6 +315,48 @@ export default function Dashboard() {
 
   const inputCls = 'w-full px-3.5 py-2.5 bg-dark-850 border border-dark-700 rounded-xl text-dark-100 text-sm focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/25 placeholder-dark-500 transition-all'
   const selectCls = inputCls + ' cursor-pointer'
+
+  const renderMatchRow = (m: Match) => {
+    const done = m.status === 'completed' || m.status === 'cancelled'
+    return (
+      <Link key={m.id} to={`/match/${m.id}`}
+        className="flex items-center gap-3 px-5 py-3.5 hover:bg-dark-900/60 transition-colors group">
+        <div className="w-1 h-8 rounded-full flex-shrink-0"
+          style={{ background: `linear-gradient(to bottom, ${m.team_a_color}, ${m.team_b_color})` }} />
+        <StatusBadge status={m.status} />
+        <span className="font-mono text-xs text-dark-700 hidden sm:block flex-shrink-0">#{m.match_code}</span>
+        <span className="text-xs text-dark-600 w-16 truncate hidden sm:block flex-shrink-0">{m.court_name}</span>
+        <div className="flex-1 flex items-center justify-between min-w-0">
+          <span className="font-semibold text-dark-200 text-sm truncate">{m.team_a}</span>
+          <span className="font-black text-white text-lg tabular-nums px-3 flex-shrink-0 font-score">
+            {m.score_a} <span className="text-dark-700">–</span> {m.score_b}
+            {done && <span className="ml-1 text-[10px] font-bold uppercase tracking-widest text-dark-600">sets</span>}
+          </span>
+          <span className="font-semibold text-dark-200 text-sm truncate text-right">{m.team_b}</span>
+        </div>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <button onClick={(e) => { e.preventDefault(); fetchServerInfo(); setQrMatch(m) }}
+            className="p-1.5 rounded-lg text-dark-700 hover:text-brand-400 hover:bg-brand-500/10 transition-colors"
+            title="Show QR code"><QrCode size={14} /></button>
+          {isSuperAdmin && m.status !== 'completed' && m.status !== 'cancelled' && (
+            <button onClick={(e) => { e.preventDefault(); handleStopMatch(m) }} disabled={actionMatch === m.id}
+              className="p-1.5 rounded-lg text-dark-700 hover:text-timeout hover:bg-timeout/10 transition-colors disabled:opacity-40"
+              title="Stop match">
+              {actionMatch === m.id ? (
+                <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z"/></svg>
+              ) : <StopCircle size={14} />}
+            </button>
+          )}
+          {isSuperAdmin && (
+            <button onClick={(e) => { e.preventDefault(); setConfirmDelete(m) }}
+              className="p-1.5 rounded-lg text-dark-700 hover:text-danger hover:bg-danger/10 transition-colors"
+              title="Delete match"><Trash2 size={14} /></button>
+          )}
+          <ExternalLink size={13} className="text-dark-700 group-hover:text-dark-400 transition-colors ml-1" />
+        </div>
+      </Link>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-dark-950">
@@ -435,67 +480,40 @@ export default function Dashboard() {
           )}
         </section>
 
-        {/* All Matches */}
+        {/* Live & Upcoming Matches */}
         <section>
           <div className="flex items-center gap-3 mb-4">
             <TrendingUp size={16} className="text-dark-500" />
-            <h2 className="text-lg font-bold text-white">All Matches</h2>
+            <h2 className="text-lg font-bold text-white">Live &amp; Upcoming</h2>
+            <span className="text-xs font-bold text-dark-500 bg-dark-850 px-2 py-0.5 rounded-full">{openMatches.length}</span>
           </div>
 
           <div className="card-hi overflow-hidden">
-            {matches.length === 0 ? (
-              <div className="py-12 text-center text-dark-600 text-sm">No matches created yet</div>
+            {openMatches.length === 0 ? (
+              <div className="py-12 text-center text-dark-600 text-sm">No live or upcoming matches</div>
             ) : (
               <div className="divide-y divide-dark-850">
-                {matches.map((m) => (
-                  <Link key={m.id} to={`/match/${m.id}`}
-                    className="flex items-center gap-3 px-5 py-3.5 hover:bg-dark-900/60 transition-colors group">
-                    {/* Color accent bar */}
-                    <div className="w-1 h-8 rounded-full flex-shrink-0"
-                      style={{ background: `linear-gradient(to bottom, ${m.team_a_color}, ${m.team_b_color})` }} />
-                    <StatusBadge status={m.status} />
-                    <span className="font-mono text-xs text-dark-700 hidden sm:block flex-shrink-0">#{m.match_code}</span>
-                    <span className="text-xs text-dark-600 w-16 truncate hidden sm:block flex-shrink-0">{m.court_name}</span>
-                    <div className="flex-1 flex items-center justify-between min-w-0">
-                      <span className="font-semibold text-dark-200 text-sm truncate">{m.team_a}</span>
-                      <span className="font-black text-white text-lg tabular-nums px-3 flex-shrink-0 font-score">
-                        {m.score_a} <span className="text-dark-700">–</span> {m.score_b}
-                      </span>
-                      <span className="font-semibold text-dark-200 text-sm truncate text-right">{m.team_b}</span>
-                    </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <button
-                        onClick={(e) => { e.preventDefault(); fetchServerInfo(); setQrMatch(m) }}
-                        className="p-1.5 rounded-lg text-dark-700 hover:text-brand-400 hover:bg-brand-500/10 transition-colors"
-                        title="Show QR code"
-                      ><QrCode size={14} /></button>
-                      {isSuperAdmin && m.status !== 'completed' && m.status !== 'cancelled' && (
-                        <button
-                          onClick={(e) => { e.preventDefault(); handleStopMatch(m) }}
-                          disabled={actionMatch === m.id}
-                          className="p-1.5 rounded-lg text-dark-700 hover:text-timeout hover:bg-timeout/10 transition-colors disabled:opacity-40"
-                          title="Stop match"
-                        >
-                          {actionMatch === m.id ? (
-                            <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z"/></svg>
-                          ) : <StopCircle size={14} />}
-                        </button>
-                      )}
-                      {isSuperAdmin && (
-                        <button
-                          onClick={(e) => { e.preventDefault(); setConfirmDelete(m) }}
-                          className="p-1.5 rounded-lg text-dark-700 hover:text-danger hover:bg-danger/10 transition-colors"
-                          title="Delete match"
-                        ><Trash2 size={14} /></button>
-                      )}
-                      <ExternalLink size={13} className="text-dark-700 group-hover:text-dark-400 transition-colors ml-1" />
-                    </div>
-                  </Link>
-                ))}
+                {openMatches.map(renderMatchRow)}
               </div>
             )}
           </div>
         </section>
+
+        {/* Finished Matches */}
+        {finishedMatches.length > 0 && (
+          <section>
+            <div className="flex items-center gap-3 mb-4">
+              <CheckCircle2 size={16} className="text-dark-500" />
+              <h2 className="text-lg font-bold text-white">Finished</h2>
+              <span className="text-xs font-bold text-dark-500 bg-dark-850 px-2 py-0.5 rounded-full">{finishedMatches.length}</span>
+            </div>
+            <div className="card-hi overflow-hidden opacity-90">
+              <div className="divide-y divide-dark-850">
+                {finishedMatches.map(renderMatchRow)}
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* Two-column: Display Control + Quick Create */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

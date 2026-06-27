@@ -21,6 +21,8 @@ const MODES = [
 const MAX_MATCHES: Record<number, number> = { 1: 1, 2: 2, 3: 4, 4: 0, 5: 0 }
 
 export function DisplayControl({ matches }: Props) {
+  // Only live/upcoming matches are selectable for the display — not finished ones.
+  const pickable = matches.filter((m) => m.status !== 'completed' && m.status !== 'cancelled')
   const [mode, setMode]       = useState<1|2|3|4|5>(1)
   const [selected, setSelected] = useState<string[]>([])
   const [sending, setSending]  = useState(false)
@@ -111,10 +113,10 @@ export function DisplayControl({ matches }: Props) {
             Select matches to display <span className="text-dark-700">({selected.length}/{maxSel})</span>
           </p>
           <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-            {matches.length === 0 && (
+            {pickable.length === 0 && (
               <p className="text-xs text-dark-600 text-center py-4">No matches available</p>
             )}
-            {matches.map((m) => {
+            {pickable.map((m) => {
               const isSelected = selected.includes(m.id)
               const isDisabled = !isSelected && selected.length >= maxSel
               return (

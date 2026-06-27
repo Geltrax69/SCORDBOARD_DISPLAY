@@ -72,10 +72,12 @@ func TestCalculateStateTimerTimeout(t *testing.T) {
 		ev(EventTimeoutEnd, base.Add(80*time.Second), "{}"),
 	}
 	st := CalculateState(events)
-	if st.TimerSeconds != 20 {
-		t.Fatalf("expected 20s frozen at timeout, got %d", st.TimerSeconds)
+	// Clock froze for the 60s timeout (20s elapsed before it), then auto-resumes
+	// at timeout_end and keeps counting to now (~base+5min => ~220s after resume).
+	if !st.TimerRunning {
+		t.Fatalf("timer should auto-resume after timeout ends")
 	}
-	if st.TimerRunning {
-		t.Fatalf("timer should not run after timeout until restarted")
+	if st.TimerSeconds < 235 || st.TimerSeconds > 245 {
+		t.Fatalf("expected ~240s (20 pre + ~220 post-resume), got %d", st.TimerSeconds)
 	}
 }

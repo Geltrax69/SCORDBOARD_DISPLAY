@@ -49,6 +49,18 @@ export default function MatchControl() {
     return () => { setCurrentMatch(null); setCurrentState(null); setEvents([]) }
   }, [id])
 
+  // Local clock tick — keep the timer moving between WS events (resyncs on each).
+  useEffect(() => {
+    if (!s?.timer_running) return
+    const t = setInterval(() => {
+      const cur = useMatchStore.getState().currentState
+      if (cur?.timer_running) {
+        useMatchStore.getState().setCurrentState({ ...cur, timer_seconds: (cur.timer_seconds ?? 0) + 1 })
+      }
+    }, 1000)
+    return () => clearInterval(t)
+  }, [s?.timer_running])
+
   const setBtnResult = (key: string, state: 'success' | 'error') => {
     setBtnStates(s => ({ ...s, [key]: state }))
     setTimeout(() => setBtnStates(s => { const n = { ...s }; delete n[key]; return n }), 1800)
@@ -255,15 +267,16 @@ export default function MatchControl() {
                 {m.court_name && <p className="text-sm text-dark-400 font-medium">{m.court_name}</p>}
               </div>
             </div>
-            {/* Live score summary */}
+            {/* Score summary — current points while live, sets won when finished */}
             <div className="flex items-center gap-3">
               <span className="text-2xl font-black" style={{ color: m.team_a_color }}>{m.team_a}</span>
               <div className="flex items-baseline gap-2 px-4">
-                <span className="text-5xl font-black text-white tabular-nums score-digit">{s.score_a}</span>
+                <span className="text-5xl font-black text-white tabular-nums score-digit">{isCompleted ? s.sets_a : s.score_a}</span>
                 <span className="text-dark-700 text-2xl">–</span>
-                <span className="text-5xl font-black text-white tabular-nums score-digit">{s.score_b}</span>
+                <span className="text-5xl font-black text-white tabular-nums score-digit">{isCompleted ? s.sets_b : s.score_b}</span>
               </div>
               <span className="text-2xl font-black" style={{ color: m.team_b_color }}>{m.team_b}</span>
+              {isCompleted && <span className="text-xs font-bold uppercase tracking-widest text-dark-500 ml-1">sets</span>}
             </div>
             {/* Timer */}
             <div className={clsx(
@@ -337,11 +350,21 @@ export default function MatchControl() {
             )}
           </div>
 
-          {isCompleted && (
-            <div className="mt-4 px-4 py-3 rounded-xl bg-dark-900 border border-dark-800 text-sm text-dark-500 text-center">
-              Match completed · Final score: <strong className="text-dark-300">{s.score_a} – {s.score_b}</strong>
-            </div>
-          )}
+          {isCompleted && (() => {
+            const winner = s.winner === 'A' ? m.team_a : s.winner === 'B' ? m.team_b
+              : s.sets_a > s.sets_b ? m.team_a : s.sets_b > s.sets_a ? m.team_b : null
+            return (
+              <div className="mt-4 px-5 py-5 rounded-2xl bg-dark-900 border border-dark-750 text-center">
+                <p className="text-xs font-black uppercase tracking-[0.3em] text-dark-500 mb-2">Match Ended</p>
+                {winner
+                  ? <p className="text-2xl font-black text-white">🏆 {winner} <span className="text-dark-400 font-bold">win</span></p>
+                  : <p className="text-2xl font-black text-white">Match drawn</p>}
+                <p className="mt-1 text-sm text-dark-400 tabular-nums">
+                  Sets {s.sets_a}–{s.sets_b} · Final {s.score_a}–{s.score_b}
+                </p>
+              </div>
+            )
+          })()}
         </div>
 
         {/* Event history */}

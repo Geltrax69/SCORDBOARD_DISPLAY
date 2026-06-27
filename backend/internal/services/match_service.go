@@ -97,6 +97,16 @@ func (s *MatchService) broadcastMatchUpdate(matchID string, ev *models.Event) {
 	}
 	match.ScoreA = state.ScoreA
 	match.ScoreB = state.ScoreB
+	// Persist the live score so the dashboard list (which reads the match row,
+	// not the event log) stays correct after a refresh.
+	s.matchRepo.UpdateScore(matchID, state.ScoreA, state.ScoreB)
+
+	// A match can auto-complete by winning 2 sets (no explicit match_end event).
+	// Persist that so the row/dashboard/control screen show it as finished too.
+	if state.Status == "completed" && match.Status != "completed" {
+		s.matchRepo.UpdateStatus(matchID, "completed")
+		match.Status = "completed"
+	}
 
 	type broadcastPayload struct {
 		Match  *models.Match  `json:"match"`

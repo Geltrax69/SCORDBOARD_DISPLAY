@@ -148,6 +148,11 @@ func (r *MatchRepo) UpdateTimer(id string, seconds int, running bool) error {
 	return err
 }
 
+func (r *MatchRepo) UpdateScore(id string, a, b int) error {
+	_, err := r.db.Exec(`UPDATE matches SET score_a=$1, score_b=$2, updated_at=NOW() WHERE id=$3`, a, b, id)
+	return err
+}
+
 func (r *MatchRepo) Delete(matchID string) error {
 	_, err := r.db.Exec(`DELETE FROM matches WHERE id = $1`, matchID)
 	return err

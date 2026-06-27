@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Trophy, Wifi, CheckCircle, AlertCircle, Loader, Plus, Minus,
          Play, Square, Timer, PauseCircle, Clock, RefreshCw, ArrowDownUp } from 'lucide-react'
 import { Button } from '@/components/common/Button'
@@ -136,6 +136,26 @@ function ScorerPanel({ match: initialMatch, token: initialToken, onDisconnect }:
     const id = setInterval(() => setTimer(t => t + 1), 1000)
     return () => clearInterval(id)
   }, [state?.timer_running])
+
+  // Auto-end a timeout once its duration elapses → match resumes on its own.
+  useEffect(() => {
+    if (state?.status !== 'timeout') return
+    const dur = state?.current_timeout?.duration || 60
+    const id = setTimeout(() => { postEvent(match.id, token, 'timeout_end').catch(() => {}) }, dur * 1000)
+    return () => clearTimeout(id)
+  }, [state?.status, state?.current_timeout?.duration, match.id, token])
+
+  // After a set finishes (court change), auto-resume the clock after the 2-min
+  // break so the next set starts on its own.
+  const prevSets = useRef(state?.completed_sets?.length ?? 0)
+  useEffect(() => {
+    const n = state?.completed_sets?.length ?? 0
+    const grew = n > prevSets.current
+    prevSets.current = n
+    if (!grew || state?.status !== 'active') return
+    const id = setTimeout(() => { postEvent(match.id, token, 'timer_start').catch(() => {}) }, 120 * 1000)
+    return () => clearTimeout(id)
+  }, [state?.completed_sets?.length, state?.status, match.id, token])
 
   // Auto-refresh token before expiration (every 6 hours for 12-hour tokens)
   useEffect(() => {

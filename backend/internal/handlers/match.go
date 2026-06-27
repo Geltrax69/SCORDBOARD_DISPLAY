@@ -67,6 +67,22 @@ func (h *MatchHandler) List(c *gin.Context) {
 	if matches == nil {
 		matches = []models.Match{}
 	}
+	// Scores live in the event log, so the stored row can be stale — overlay the
+	// computed live score on each match.
+	// ponytail: N+1 (one state calc per match); fine for dashboard-sized lists,
+	// batch by match_id if a tournament ever has hundreds of matches.
+	for i := range matches {
+		if _, st, err := h.matchService.GetMatchWithState(matches[i].ID); err == nil && st != nil {
+			// Finished matches show sets won; live/pending show the current points.
+			if matches[i].Status == "completed" {
+				matches[i].ScoreA = st.SetsA
+				matches[i].ScoreB = st.SetsB
+			} else {
+				matches[i].ScoreA = st.ScoreA
+				matches[i].ScoreB = st.ScoreB
+			}
+		}
+	}
 	c.JSON(http.StatusOK, matches)
 }
 

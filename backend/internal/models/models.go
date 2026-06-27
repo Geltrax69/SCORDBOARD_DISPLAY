@@ -227,13 +227,23 @@ func CalculateState(events []Event) MatchState {
 		}
 	}
 
+	// Open timeout tracking — a timeout auto-expires after its duration so the
+	// match resumes on its own even if no one taps "End Timeout".
+	var toStart *time.Time
+	var toDur int
+
+	// Court-change break: when a set finishes the clock pauses for 2 minutes,
+	// then auto-resumes for the next set.
+	var breakStart *time.Time
+	const courtChangeSecs = 120
+
 	// Sepak takraw set tracking. Each rally is one point in the current set; when
 	// a set's win condition is met it closes, sides swap, and play moves to the
 	// next set. firstServer is the toss winner (set via serve_set, default A).
 	firstServer := "A"
 	setIdx := 0
 	matchOver := false
-	closeSet := func() {
+	closeSet := func(at time.Time) {
 		target, capPts, _ := setLimits(setIdx)
 		a, b := state.ScoreA, state.ScoreB
 		if !setWon(a, b, target, capPts) && !setWon(b, a, target, capPts) {
@@ -250,6 +260,11 @@ func CalculateState(events []Event) MatchState {
 			matchOver = true
 		} else {
 			setIdx++
+			// Court change: pause the clock for the 2-minute break.
+			state.TimerRunning = false
+			stopTimer(at)
+			bs := at
+			breakStart = &bs
 		}
 	}
 
@@ -267,6 +282,16 @@ func CalculateState(events []Event) MatchState {
 			if matchOver {
 				break
 			}
+			// A point means play resumed → end any court-change break early and
+			// restart the clock for the new set.
+			if breakStart != nil {
+				breakStart = nil
+				state.TimerRunning = true
+				if lastStart == nil {
+					t := e.CreatedAt
+					lastStart = &t
+				}
+			}
 			var p ScorePayload
 			if err := json.Unmarshal(e.Payload, &p); err == nil {
 				if p.Team == "A" {
@@ -274,7 +299,7 @@ func CalculateState(events []Event) MatchState {
 				} else {
 					state.ScoreB += p.Points
 				}
-				closeSet()
+				closeSet(e.CreatedAt)
 			}
 		case EventScoreRemove:
 			var p ScorePayload
@@ -321,15 +346,55 @@ func CalculateState(events []Event) MatchState {
 				state.Status = "timeout"
 				state.TimerRunning = false
 				stopTimer(e.CreatedAt)
+				ts := e.CreatedAt
+				toStart = &ts
+				toDur = p.Duration
+				if toDur <= 0 {
+					toDur = 60
+				}
 			}
 		case EventTimeoutEnd:
 			state.CurrentTimeout = nil
 			state.Status = "active"
-			// Stays paused after a timeout — referee resumes the clock manually.
+			toStart = nil
+			// Timeout over → clock auto-resumes (play restarts immediately).
+			state.TimerRunning = true
+			if lastStart == nil {
+				t := e.CreatedAt
+				lastStart = &t
+			}
 		case EventSubstitution:
 			// A substitution stops the clock; referee resumes when play restarts.
 			state.TimerRunning = false
 			stopTimer(e.CreatedAt)
+		}
+	}
+
+	// Auto-expire an open timeout once its duration has elapsed: clear it, set
+	// the match active again, and resume the clock from the moment it ended.
+	if toStart != nil && state.CurrentTimeout != nil {
+		end := toStart.Add(time.Duration(toDur) * time.Second)
+		if time.Now().After(end) {
+			state.CurrentTimeout = nil
+			state.Status = "active"
+			state.TimerRunning = true
+			if lastStart == nil {
+				lastStart = &end
+			}
+		}
+	}
+
+	// Court-change break: clock stays paused for 2 minutes after a set, then
+	// auto-resumes for the next set.
+	if breakStart != nil && state.CurrentTimeout == nil && state.Status == "active" && !matchOver {
+		end := breakStart.Add(courtChangeSecs * time.Second)
+		if time.Now().After(end) {
+			state.TimerRunning = true
+			if lastStart == nil {
+				lastStart = &end
+			}
+		} else if lastStart == nil {
+			state.TimerRunning = false // still changing courts
 		}
 	}
 

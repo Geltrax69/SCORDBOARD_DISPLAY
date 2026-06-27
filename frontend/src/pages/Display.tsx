@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useMemo, useLayoutEffect } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo, useLayoutEffect, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { gsap } from 'gsap'
 import { Flip } from 'gsap/Flip'
@@ -35,9 +35,17 @@ type OverlayState =
   | { type: 'timeout'; payload: TimeoutPayload; match: Match }
   | { type: 'courtchange'; match: Match; nextSet: number }
   | { type: 'substitution'; payload: SubstitutionPayload; match: Match }
+  | { type: 'setpoint'; match: Match; team: 'A' | 'B'; isMatch: boolean }
   | { type: 'announcement'; payload: AnnouncementPayload }
   | { type: 'sponsor'; payload: SponsorPayload }
   | { type: 'video'; src: string }
+
+// Match-specific moments rendered INSIDE a single card when several matches
+// share the screen, so they never cover the other live courts.
+type CellFx =
+  | { kind: 'sub'; payload: SubstitutionPayload }
+  | { kind: 'setpoint'; team: 'A' | 'B'; isMatch: boolean }
+  | { kind: 'courtchange'; nextSet: number }
 
 export default function Display() {
   const [searchParams] = useSearchParams()
@@ -58,6 +66,13 @@ export default function Display() {
   // dropped from the grid so the remaining matches stretch to fill the space.
   const [celebrating, setCelebrating] = useState<LiveMatch | null>(null)
   const [dismissed, setDismissed]     = useState<Set<string>>(new Set())
+  // Per-card transient FX (only used in multi-match grid). true = >1 match shown.
+  const [cellFx, setCellFx]           = useState<Record<string, CellFx>>({})
+  const multiRef = useRef(false)
+  const flashCell = (id: string, fx: CellFx, ms: number) => {
+    setCellFx((prev) => ({ ...prev, [id]: fx }))
+    setTimeout(() => setCellFx((prev) => { const n = { ...prev }; delete n[id]; return n }), ms)
+  }
 
   const layoutRef = useRef<HTMLDivElement>(null)
 
@@ -130,6 +145,11 @@ export default function Display() {
       case 'timer_pause':
       case 'match_end':
       case 'timeout_end': {
+        // A score means play resumed — clear any court-change/set-point card
+        // overlay so the new set's scores are visible immediately.
+        if ((type === 'score_update' || type === 'score_remove') && match_id) {
+          setCellFx((prev) => { if (!prev[match_id]) return prev; const n = { ...prev }; delete n[match_id]; return n })
+        }
         if (match_id && payload.match && payload.state) {
           // The deciding point auto-completes the match (status flips to
           // "completed"); fire the takeover when it does, not just on match_end.
@@ -140,11 +160,22 @@ export default function Display() {
           const setJustFinished = type === 'score_update' &&
             payload.state.status !== 'completed' &&
             (payload.state.completed_sets?.length ?? 0) > prevSets
+          // Newly reached set/match point (or escalated set→match, or switched team).
+          const prevSt = liveMatches[match_id]?.state
+          const curTeam = payload.state.match_point || payload.state.set_point
+          const curIsMatch = !!payload.state.match_point
+          const prevTeam = prevSt?.match_point || prevSt?.set_point
+          const newlyPoint = !!curTeam && payload.state.status === 'active' &&
+            (curTeam !== prevTeam || curIsMatch !== !!prevSt?.match_point)
           setLiveMatches((prev) => ({ ...prev, [match_id]: { match: payload.match!, state: payload.state! } }))
           if (type === 'match_end' || justCompleted) {
             setCelebrating({ match: payload.match, state: payload.state })
           } else if (setJustFinished) {
-            setOverlay({ type: 'courtchange', match: payload.match, nextSet: payload.state.set_number })
+            if (multiRef.current) flashCell(match_id, { kind: 'courtchange', nextSet: payload.state.set_number }, 120000)
+            else setOverlay({ type: 'courtchange', match: payload.match, nextSet: payload.state.set_number })
+          } else if (newlyPoint) {
+            if (multiRef.current) flashCell(match_id, { kind: 'setpoint', team: curTeam as 'A' | 'B', isMatch: curIsMatch }, 3500)
+            else setOverlay({ type: 'setpoint', match: payload.match, team: curTeam as 'A' | 'B', isMatch: curIsMatch })
           }
         }
         if (type === 'timeout_end') setOverlay({ type: 'none' })
@@ -167,17 +198,18 @@ export default function Display() {
       case 'timeout_start': {
         if (match_id && payload.match && payload.state?.current_timeout) {
           setLiveMatches((prev) => ({ ...prev, [match_id]: { match: payload.match!, state: payload.state! } }))
-          setOverlay({ type: 'timeout', payload: payload.state!.current_timeout!, match: payload.match! })
+          // Multi-match: the card itself shows TIME OUT (status). Single: full-screen.
+          if (!multiRef.current) {
+            setOverlay({ type: 'timeout', payload: payload.state!.current_timeout!, match: payload.match! })
+          }
         }
         break
       }
       case 'substitution': {
         if (match_id && payload.event && payload.match) {
-          setOverlay({
-            type: 'substitution',
-            payload: payload.event.payload as unknown as SubstitutionPayload,
-            match: payload.match!,
-          })
+          const sub = payload.event.payload as unknown as SubstitutionPayload
+          if (multiRef.current) flashCell(match_id, { kind: 'sub', payload: sub }, 4500)
+          else setOverlay({ type: 'substitution', payload: sub, match: payload.match! })
         }
         break
       }
@@ -264,6 +296,8 @@ export default function Display() {
   // Matches actually shown right now: selected, loaded, and not reflowed-out
   // after their winner takeover. The grid auto-sizes to however many remain.
   const visibleList = matchList.filter((lm) => !dismissed.has(lm.match.id))
+  // Multiple matches on screen → match-specific moments stay inside their card.
+  multiRef.current = visibleList.length > 1
 
   return (
     <div className="h-screen bg-dark-950 overflow-hidden relative select-none">
@@ -282,7 +316,7 @@ export default function Display() {
         ) : visibleList.length === 0 ? (
           <EmptyDisplay label="Waiting for matches" />
         ) : (
-          <MatchGrid matches={visibleList} players={players} showPlayerAnim={showPlayerAnim} />
+          <MatchGrid matches={visibleList} players={players} showPlayerAnim={showPlayerAnim} fx={cellFx} />
         )}
       </div>
 
@@ -325,6 +359,14 @@ export default function Display() {
         <CourtChangeOverlay
           match={overlay.match}
           nextSet={overlay.nextSet}
+          onDone={() => setOverlay({ type: 'none' })}
+        />
+      )}
+      {overlay.type === 'setpoint' && (
+        <SetPointOverlay
+          match={overlay.match}
+          team={overlay.team}
+          isMatch={overlay.isMatch}
           onDone={() => setOverlay({ type: 'none' })}
         />
       )}
@@ -1224,6 +1266,48 @@ function CourtChangeOverlay({ match, nextSet, onDone }: { match: Match; nextSet:
   )
 }
 
+// Full-screen "SET POINT" / "MATCH POINT" takeover — plays ~3.5s, then the
+// small persistent badge in the score header carries it from there.
+function SetPointOverlay({ match, team, isMatch, onDone }: { match: Match; team: 'A' | 'B'; isMatch: boolean; onDone: () => void }) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  const color = team === 'A' ? match.team_a_color : match.team_b_color
+  const teamName = team === 'A' ? match.team_a : match.team_b
+  const onDoneRef = useRef(onDone); onDoneRef.current = onDone
+
+  useEffect(() => {
+    if (!rootRef.current) return
+    const ctx = gsap.context(() => {
+      const tl = gsap.timeline({ onComplete: () => onDoneRef.current() })
+      tl.fromTo(rootRef.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.35, ease: 'power2.out' })
+        .fromTo('.sp-label', { y: 40, opacity: 0, filter: 'blur(8px)' },
+          { y: 0, opacity: 1, filter: 'blur(0px)', duration: 0.5, ease: 'power3.out' }, '-=0.1')
+        .fromTo('.sp-title', { scale: 0.6, opacity: 0 },
+          { scale: 1, opacity: 1, duration: 0.6, ease: 'back.out(2)' }, '-=0.25')
+        .fromTo('.sp-team', { y: -24, opacity: 0 }, { y: 0, opacity: 1, duration: 0.45, ease: 'power3.out' }, '-=0.3')
+        .to('.sp-title', { scale: 1.04, duration: 1.6, ease: 'sine.inOut', yoyo: true, repeat: 1 })
+        .to(rootRef.current, { autoAlpha: 0, duration: 0.4, ease: 'power2.in' })
+    }, rootRef)
+    return () => ctx.revert()
+  }, [])
+
+  return (
+    <div ref={rootRef} className="fixed inset-0 z-[70] flex flex-col items-center justify-center"
+      style={{ background: `radial-gradient(ellipse at center, ${color}26 0%, rgba(2,6,17,0.97) 70%)`, backdropFilter: 'blur(6px)' }}>
+      <div className="absolute inset-0 pointer-events-none" style={{ boxShadow: `inset 0 0 160px ${color}55`, border: `6px solid ${color}40` }} />
+      <p className="sp-label text-white/55 font-black uppercase tracking-[0.4em] mb-4" style={{ fontSize: 'clamp(1rem,2.2vw,1.8rem)' }}>
+        {match.court_name || 'Court'}
+      </p>
+      <h1 className="sp-title font-black uppercase tracking-tight leading-none text-center"
+        style={{ color, fontSize: 'clamp(4rem,13vw,13rem)', textShadow: `0 0 80px ${color}80` }}>
+        {isMatch ? 'Match Point' : 'Set Point'}
+      </h1>
+      <p className="sp-team font-black uppercase tracking-widest text-white mt-6" style={{ fontSize: 'clamp(1.6rem,4.5vw,4rem)' }}>
+        {teamName}
+      </p>
+    </div>
+  )
+}
+
 function SingleMatchDisplay({ lm, players, showPlayerAnim }: { lm: LiveMatch; players: Player[]; showPlayerAnim: boolean }) {
   const { match: m, state: s } = lm
   const scoreARef = useRef<HTMLDivElement>(null)
@@ -1400,7 +1484,69 @@ function SingleMatchDisplay({ lm, players, showPlayerAnim }: { lm: LiveMatch; pl
   )
 }
 
-function CompactScore({ lm, index = 0, dense = false, players = [], showPlayerAnim = false }: { lm: LiveMatch; index?: number; dense?: boolean; players?: Player[]; showPlayerAnim?: boolean }) {
+// In-card moment overlay (multi-match): covers ONE court's card, not the screen.
+function CellFxOverlay({ fx, m }: { fx: CellFx; m: Match }) {
+  const ref = useRef<HTMLDivElement>(null)
+  // 2-minute court-change countdown.
+  const [cc, setCc] = useState(120)
+  useEffect(() => {
+    if (fx.kind !== 'courtchange') return
+    setCc(120)
+    const id = setInterval(() => setCc((x) => Math.max(0, x - 1)), 1000)
+    return () => clearInterval(id)
+  }, [fx.kind])
+  useEffect(() => {
+    if (!ref.current) return
+    const ctx = gsap.context(() => {
+      gsap.fromTo(ref.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.3, ease: 'power2.out' })
+      gsap.fromTo('.fx-pop', { scale: 0.7, y: 14, opacity: 0 },
+        { scale: 1, y: 0, opacity: 1, duration: 0.5, ease: 'back.out(2)', stagger: 0.08 })
+    }, ref)
+    return () => ctx.revert()
+  }, [])
+
+  const team = (t: 'A' | 'B') => (t === 'A' ? m.team_a : m.team_b)
+  const teamColor = (t: 'A' | 'B') => (t === 'A' ? m.team_a_color : m.team_b_color)
+
+  let accent = '#6366f1', heading = ''
+  let sub: ReactNode = null
+  if (fx.kind === 'setpoint') {
+    accent = teamColor(fx.team)
+    heading = fx.isMatch ? 'Match Point' : 'Set Point'
+    sub = <span className="fx-pop font-black uppercase tracking-widest text-white" style={{ fontSize: 'clamp(1rem,2.4vw,2rem)' }}>{team(fx.team)}</span>
+  } else if (fx.kind === 'courtchange') {
+    accent = '#f59e0b'
+    heading = 'Court Change'
+    sub = (
+      <div className="fx-pop flex flex-col items-center gap-1">
+        <span className="font-black font-mono tabular-nums text-white leading-none" style={{ fontSize: 'clamp(2.5rem,7vw,5rem)' }}>
+          {Math.floor(cc / 60)}:{String(cc % 60).padStart(2, '0')}
+        </span>
+        <span className="font-bold uppercase tracking-[0.3em] text-white/50 text-xs mt-1">Set {fx.nextSet} next</span>
+      </div>
+    )
+  } else {
+    accent = '#a855f7'
+    heading = 'Substitution'
+    sub = (
+      <div className="fx-pop flex flex-col items-center gap-1 text-center">
+        <span className="text-emerald-400 font-bold uppercase text-sm tracking-wide">IN · {fx.payload.player_in} #{fx.payload.number}</span>
+        <span className="text-rose-400 font-bold uppercase text-sm tracking-wide">OUT · {fx.payload.player_out}</span>
+      </div>
+    )
+  }
+
+  return (
+    <div ref={ref} className="absolute inset-0 z-30 flex flex-col items-center justify-center rounded-3xl"
+      style={{ background: `radial-gradient(ellipse at center, ${accent}26 0%, rgba(6,14,26,0.94) 70%)`, backdropFilter: 'blur(2px)' }}>
+      <h3 className="fx-pop font-black uppercase tracking-tight leading-none text-center"
+        style={{ color: accent, fontSize: 'clamp(1.8rem,5vw,4rem)', textShadow: `0 0 40px ${accent}66` }}>{heading}</h3>
+      <div className="mt-3">{sub}</div>
+    </div>
+  )
+}
+
+function CompactScore({ lm, index = 0, dense = false, players = [], showPlayerAnim = false, fx }: { lm: LiveMatch; index?: number; dense?: boolean; players?: Player[]; showPlayerAnim?: boolean; fx?: CellFx }) {
   const { match: m, state: s } = lm
   const cardRef  = useRef<HTMLDivElement>(null)
   const scoreARef = useRef<HTMLDivElement>(null)
@@ -1416,6 +1562,15 @@ function CompactScore({ lm, index = 0, dense = false, players = [], showPlayerAn
       { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: 'power3.out', delay: index * 0.12 },
     )
   }, [index])
+
+  // Per-card timeout countdown (shown in the TIME OUT banner).
+  const [toLeft, setToLeft] = useState(0)
+  useEffect(() => {
+    if (m.status !== 'timeout') { setToLeft(0); return }
+    setToLeft(s.current_timeout?.duration ?? 60)
+    const id = setInterval(() => setToLeft((x) => Math.max(0, x - 1)), 1000)
+    return () => clearInterval(id)
+  }, [m.status, s.current_timeout?.duration])
 
   useEffect(() => {
     if (s.score_a !== prevA.current && scoreARef.current) {
@@ -1443,7 +1598,7 @@ function CompactScore({ lm, index = 0, dense = false, players = [], showPlayerAn
   const statusColor = ({ active: '#10b981', timeout: '#f59e0b', completed: '#64748b', pending: '#64748b', paused: '#38bdf8', cancelled: '#ef4444' } as Record<string,string>)[m.status] ?? '#64748b'
   const isCompleted = m.status === 'completed'
   const winnerKey = s.winner || (s.sets_a > s.sets_b ? 'A' : s.sets_b > s.sets_a ? 'B' : 'draw')
-  const scoreSize = dense ? 'clamp(2.8rem, 7vw, 5.5rem)' : 'clamp(4rem, 9vw, 8rem)'
+  const scoreSize = dense ? 'clamp(5rem, 13vw, 11rem)' : 'clamp(9rem, 21vw, 19rem)'
   // During play show current-set points; once finished show sets won as the result.
   const dispA = isCompleted ? (s.sets_a ?? 0) : s.score_a
   const dispB = isCompleted ? (s.sets_b ?? 0) : s.score_b
@@ -1460,13 +1615,24 @@ function CompactScore({ lm, index = 0, dense = false, players = [], showPlayerAn
         m.status === 'timeout' ? 'border-amber-500/70' : 'border-dark-700',
       )}
       style={m.status === 'timeout' ? { boxShadow: '0 0 0 2px rgba(245,158,11,0.35), 0 0 40px rgba(245,158,11,0.15)' } : undefined}>
-      {/* Timeout banner for this court */}
+      {/* In-card moment (sub / set point / court change) — scoped to THIS court */}
+      {fx && <CellFxOverlay fx={fx} m={m} />}
+      {/* Timeout — prominent in-card takeover so it's clearly visible courtside */}
       {m.status === 'timeout' && (
-        <div className="absolute inset-x-0 top-1.5 z-20 flex justify-center pointer-events-none">
-          <span className="mt-2 flex items-center gap-2 text-amber-400 font-black uppercase tracking-[0.3em] text-sm px-4 py-1.5 rounded-full"
-            style={{ background: 'rgba(245,158,11,0.14)', border: '1px solid rgba(245,158,11,0.4)' }}>
-            <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" /> Time out
-          </span>
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center pointer-events-none"
+          style={{ background: 'radial-gradient(ellipse at center, rgba(245,158,11,0.18) 0%, rgba(6,14,26,0.92) 70%)', backdropFilter: 'blur(2px)' }}>
+          <p className="flex items-center gap-3 font-black uppercase tracking-[0.35em] text-amber-400 leading-none"
+            style={{ fontSize: 'clamp(2rem,6vw,4.5rem)', textShadow: '0 0 40px rgba(245,158,11,0.5)' }}>
+            <span className="rounded-full bg-amber-400 animate-pulse" style={{ width: '0.4em', height: '0.4em' }} /> Timeout
+          </p>
+          {s.current_timeout && (
+            <p className="mt-2 font-bold uppercase tracking-widest text-white/80" style={{ fontSize: 'clamp(1rem,2.5vw,1.8rem)' }}>
+              {s.current_timeout.team === 'A' ? m.team_a : m.team_b}
+            </p>
+          )}
+          <p className="mt-3 font-black font-mono tabular-nums text-amber-300 leading-none" style={{ fontSize: 'clamp(2.5rem,8vw,6rem)' }}>
+            {String(Math.floor(toLeft / 60)).padStart(2, '0')}:{String(toLeft % 60).padStart(2, '0')}
+          </p>
         </div>
       )}
       {/* Team-colour identity bar so each match is instantly distinguishable */}
@@ -1505,7 +1671,7 @@ function CompactScore({ lm, index = 0, dense = false, players = [], showPlayerAn
             {m.team_a}
           </p>
           <div ref={scoreARef} className="font-black font-score tabular-nums leading-none"
-            style={{ color: m.team_a_color, fontSize: scoreSize, filter: `drop-shadow(0 0 28px ${m.team_a_color}66)` }}>
+            style={{ color: m.team_a_color, fontSize: scoreSize, filter: `drop-shadow(0 0 45px ${m.team_a_color}) brightness(1.25)` }}>
             {dispA}
           </div>
         </div>
@@ -1526,7 +1692,7 @@ function CompactScore({ lm, index = 0, dense = false, players = [], showPlayerAn
             {isCompleted && winnerKey === 'B' && <span title="Winner">🏆</span>}
           </p>
           <div ref={scoreBRef} className="font-black font-score tabular-nums leading-none"
-            style={{ color: m.team_b_color, fontSize: scoreSize, filter: `drop-shadow(0 0 28px ${m.team_b_color}66)` }}>
+            style={{ color: m.team_b_color, fontSize: scoreSize, filter: `drop-shadow(0 0 45px ${m.team_b_color}) brightness(1.25)` }}>
             {dispB}
           </div>
         </div>
@@ -1720,7 +1886,7 @@ function gridTemplate(n: number): { cols: string; rows: string } {
 // Auto-sizing match grid. When the set of matches changes, surviving cards
 // smoothly resize/reposition (GSAP Flip) while entering cards fade+scale in —
 // so 4→3, 2→3, 1→4, etc. all reflow like a broadcast director cut.
-function MatchGrid({ matches, players, showPlayerAnim }: { matches: LiveMatch[]; players: Record<string, Player[]>; showPlayerAnim: boolean }) {
+function MatchGrid({ matches, players, showPlayerAnim, fx }: { matches: LiveMatch[]; players: Record<string, Player[]>; showPlayerAnim: boolean; fx: Record<string, CellFx> }) {
   const gridRef = useRef<HTMLDivElement>(null)
   const prevState = useRef<Flip.FlipState | null>(null)
   const n = matches.length
@@ -1753,7 +1919,7 @@ function MatchGrid({ matches, players, showPlayerAnim }: { matches: LiveMatch[];
         <div key={lm.match.id} data-flip-id={lm.match.id} className="match-card min-h-0 min-w-0 flex flex-col">
           {n === 1
             ? <SingleMatchDisplay lm={lm} players={players[lm.match.id] ?? []} showPlayerAnim={showPlayerAnim} />
-            : <CompactScore lm={lm} index={i} dense={dense} players={players[lm.match.id] ?? []} showPlayerAnim={showPlayerAnim} />}
+            : <CompactScore lm={lm} index={i} dense={dense} players={players[lm.match.id] ?? []} showPlayerAnim={showPlayerAnim} fx={fx[lm.match.id]} />}
         </div>
       ))}
     </div>
@@ -1976,7 +2142,7 @@ function MatchCompletedCelebration({ lm }: { lm: LiveMatch }) {
   }, [winnerColor, isDraw])
 
   return (
-    <div ref={containerRef} className="flex-1 flex flex-col items-center justify-center relative overflow-hidden bg-[#020611]">
+    <div ref={containerRef} className="h-full w-full flex flex-col items-center justify-center relative overflow-hidden bg-[#020611]">
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
         <div className="absolute top-[-20%] left-[-20%] w-[140%] h-[140%] opacity-20"
           style={{
