@@ -31,9 +31,9 @@ function Navbar() {
         </div>
       </Link>
 
-      {/* Nav links */}
+      {/* Nav links — owner only manages users, so hide match dashboard/display */}
       <nav className="flex items-center gap-1">
-        {navLinks.map(({ to, label, icon: Icon }) => {
+        {user?.role !== 'owner' && navLinks.map(({ to, label, icon: Icon }) => {
           const active = location.pathname === to
           return (
             <Link key={to} to={to} className={clsx(
@@ -47,12 +47,14 @@ function Navbar() {
             </Link>
           )
         })}
-        <a href="/display" target="_blank" rel="noreferrer"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium
-                     text-dark-400 hover:text-dark-100 hover:bg-dark-800 transition-all">
-          <Monitor size={14} />
-          <span className="hidden sm:block">Display</span>
-        </a>
+        {user?.role !== 'owner' && (
+          <a href="/display" target="_blank" rel="noreferrer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium
+                       text-dark-400 hover:text-dark-100 hover:bg-dark-800 transition-all">
+            <Monitor size={14} />
+            <span className="hidden sm:block">Display</span>
+          </a>
+        )}
         {user?.role === 'owner' && (
           <Link to="/admin" className={clsx(
             'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
@@ -100,6 +102,8 @@ function ProtectedLayout() {
   const location = useLocation()
   if (!isAuthenticated) return <Navigate to="/login" state={{ from: location }} replace />
   if (user?.role === 'display') return <Navigate to="/display" replace />
+  // Owner manages users — their home is the Users page, not the match dashboard.
+  if (user?.role === 'owner' && location.pathname === '/') return <Navigate to="/admin" replace />
 
   return (
     <div className="min-h-screen bg-dark-950 flex flex-col">

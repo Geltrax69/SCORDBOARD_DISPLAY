@@ -104,6 +104,10 @@ export default function UserAdmin() {
                   <p className="font-semibold text-dark-100 text-sm truncate">{u.email}</p>
                   <p className="text-xs text-dark-500">{ROLES.find((r) => r.value === u.role)?.label ?? u.role}</p>
                 </div>
+                <span className="text-xs font-bold tabular-nums text-dark-300 bg-dark-800 px-2.5 py-1 rounded-full flex-shrink-0"
+                  title="Matches created by this user">
+                  {u.match_count ?? 0} <span className="text-dark-500 font-medium">matches</span>
+                </span>
                 <button onClick={() => startEdit(u)}
                   className="p-2 rounded-lg text-dark-500 hover:text-brand-400 hover:bg-brand-500/10 transition-colors" title="Edit"><Pencil size={15} /></button>
                 <button onClick={() => remove(u)} disabled={u.id === me?.id}

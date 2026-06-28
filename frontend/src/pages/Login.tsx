@@ -19,7 +19,7 @@ export default function Login() {
     try {
       const { token, user } = await login(email, password)
       setAuth(token, user)
-      navigate(user.role === 'display' ? '/display' : '/')
+      navigate(user.role === 'display' ? '/display' : user.role === 'owner' ? '/admin' : '/')
     } catch {
       setError('Invalid username or password')
     } finally { setLoading(false) }

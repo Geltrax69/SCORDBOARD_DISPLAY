@@ -68,7 +68,9 @@ func (r *UserRepo) Delete(id string) error {
 
 func (r *UserRepo) List() ([]models.User, error) {
 	rows, err := r.db.Query(
-		`SELECT id, email, name, role, created_at, updated_at FROM users ORDER BY created_at DESC`,
+		`SELECT u.id, u.email, u.name, u.role, u.created_at, u.updated_at,
+		        (SELECT COUNT(*) FROM matches m WHERE m.created_by = u.id) AS match_count
+		 FROM users u ORDER BY u.created_at DESC`,
 	)
 	if err != nil {
 		return nil, err
@@ -78,7 +80,7 @@ func (r *UserRepo) List() ([]models.User, error) {
 	var users []models.User
 	for rows.Next() {
 		var u models.User
-		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CreatedAt, &u.UpdatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CreatedAt, &u.UpdatedAt, &u.MatchCount); err != nil {
 			return nil, err
 		}
 		users = append(users, u)

@@ -20,6 +20,7 @@ type User struct {
 	PasswordHash string    `json:"-"`
 	Name         string    `json:"name"`
 	Role         Role      `json:"role"`
+	MatchCount   int       `json:"match_count"` // matches created by this user (computed in List)
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
