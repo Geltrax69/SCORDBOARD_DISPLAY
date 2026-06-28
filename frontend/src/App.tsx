@@ -8,7 +8,8 @@ import Dashboard  from '@/pages/Dashboard'
 import MatchControl from '@/pages/MatchControl'
 import Display    from '@/pages/Display'
 import Connect    from '@/pages/Connect'
-import { LogOut, LayoutDashboard, Monitor } from 'lucide-react'
+import UserAdmin  from '@/pages/UserAdmin'
+import { LogOut, LayoutDashboard, Monitor, Users } from 'lucide-react'
 import { useWSStore } from '@/store/wsStore'
 
 function Navbar() {
@@ -52,6 +53,17 @@ function Navbar() {
           <Monitor size={14} />
           <span className="hidden sm:block">Display</span>
         </a>
+        {user?.role === 'owner' && (
+          <Link to="/admin" className={clsx(
+            'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
+            location.pathname === '/admin'
+              ? 'bg-brand-500/15 text-brand-300 border border-brand-500/20'
+              : 'text-dark-400 hover:text-dark-100 hover:bg-dark-800',
+          )}>
+            <Users size={14} />
+            <span className="hidden sm:block">Users</span>
+          </Link>
+        )}
       </nav>
 
       {/* Right side */}
@@ -116,6 +128,7 @@ export default function App() {
         <Route path="/display" element={<DisplayRoute />} />
         <Route element={<ProtectedLayout />}>
           <Route path="/"          element={<Dashboard />} />
+          <Route path="/admin"     element={<UserAdmin />} />
           <Route path="/match/:id" element={<MatchControl />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

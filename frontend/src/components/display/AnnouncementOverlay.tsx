@@ -14,11 +14,12 @@ export function AnnouncementOverlay({ message, duration, imageUrl, title, onDone
   const overlayRef = useRef<HTMLDivElement>(null)
   const textRef    = useRef<HTMLDivElement>(null)
   const imgRef     = useRef<HTMLImageElement>(null)
+  const onDoneRef  = useRef(onDone); onDoneRef.current = onDone
 
   useEffect(() => {
     if (!overlayRef.current || !textRef.current) return
 
-    const tl = gsap.timeline({ onComplete: onDone })
+    const tl = gsap.timeline({ onComplete: () => onDoneRef.current?.() })
 
     // Fade + zoom in
     tl.fromTo(overlayRef.current,
@@ -44,7 +45,9 @@ export function AnnouncementOverlay({ message, duration, imageUrl, title, onDone
     .to(overlayRef.current, { opacity: 0, duration: 0.3 }, '-=0.15')
 
     return () => { tl.kill() }
-  }, [duration, onDone])
+    // Run once — avoid restarting on the parent's per-second re-render (flicker).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div

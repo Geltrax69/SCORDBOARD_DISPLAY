@@ -1,0 +1,85 @@
+# Production stack for ScoreCast — standalone (do NOT combine with docker-compose.yml).
+#   docker compose -f docker-compose.prod.yml up -d --build
+# Namespaced as project "scorecast" so its containers/volumes/networks never
+# collide with another project already on the server. Caddy gives automatic HTTPS
+# for $DOMAIN. Nothing here publishes 5432 (Postgres stays internal).
+name: scorecast
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${DB_NAME:-scoreboard}
+      POSTGRES_USER:     ${DB_USER:-scoreboard}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-scoreboard} -d ${DB_NAME:-scoreboard}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [internal]
+
+  backend:
+    build: { context: ./backend, dockerfile: Dockerfile }
+    restart: unless-stopped
+    environment:
+      SERVER_PORT:     "8080"
+      ENVIRONMENT:     production
+      DB_HOST:         postgres
+      DB_PORT:         "5432"
+      DB_USER:         ${DB_USER:-scoreboard}
+      DB_PASSWORD:     ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      DB_NAME:         ${DB_NAME:-scoreboard}
+      DB_SSLMODE:      disable
+      JWT_SECRET:      ${JWT_SECRET:?set a long random JWT_SECRET in .env}
+      CORS_ORIGINS:    ${PUBLIC_BASE_URL}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}   # e.g. https://scorecast.simpedu.in → drives QR/connect/display links
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [internal]
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: /api
+        VITE_WS_URL:  ""        # same-origin → wss:// derived automatically behind HTTPS
+    restart: unless-stopped
+    depends_on: [backend]
+    networks: [internal]
+
+  nginx:
+    image: nginx:1.25-alpine
+    restart: unless-stopped
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on: [backend, frontend]
+    networks: [internal, web]   # reachable by Caddy via "web"; no host ports
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env, e.g. scorecast.simpedu.in}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [nginx]
+    networks: [web]
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  internal:
+  web:

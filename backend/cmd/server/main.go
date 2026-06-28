@@ -120,12 +120,18 @@ func main() {
 			secured.POST("/upload/team-logo", uploadH.UploadTeamLogo)
 			secured.POST("/upload/media", uploadH.UploadMedia)
 
-			// Super admin only
+			// Owner only — user management (create/list/edit/delete accounts)
+			owner := secured.Group("", auth.RequireRole("owner"))
+			{
+				owner.POST("/users", authH.CreateUser)
+				owner.GET("/users", authH.ListUsers)
+				owner.PUT("/users/:id", authH.UpdateUser)
+				owner.DELETE("/users/:id", authH.DeleteUser)
+			}
+
+			// Super admin (and owner) — runs tournaments/matches/display
 			admin := secured.Group("", auth.RequireRole("super_admin"))
 			{
-				admin.POST("/users", authH.CreateUser)
-				admin.GET("/users", authH.ListUsers)
-
 				admin.POST("/tournaments", tourH.Create)
 				admin.PATCH("/tournaments/:id/status", tourH.UpdateStatus)
 

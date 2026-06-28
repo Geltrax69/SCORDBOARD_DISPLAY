@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -114,11 +116,19 @@ func (h *DeviceHandler) Connect(c *gin.Context) {
 // so it reflects the current network even after WiFi/VPN changes.
 func (h *DeviceHandler) GetServerInfo(c *gin.Context) {
 	ip := netutil.LocalIP()
+	connectURL := fmt.Sprintf("http://%s:%s/connect", ip, h.frontendPort)
+	displayURL := fmt.Sprintf("http://%s:%s/display", ip, h.frontendPort)
+	// In production, PUBLIC_BASE_URL (e.g. https://scorecast.simpedu.in) overrides
+	// the LAN IP so the QR/connect/display links use the public domain.
+	if base := strings.TrimRight(os.Getenv("PUBLIC_BASE_URL"), "/"); base != "" {
+		connectURL = base + "/connect"
+		displayURL = base + "/display"
+	}
 	info := models.ServerInfo{
 		LocalIP:          ip,
 		Port:             h.frontendPort,
-		ConnectURL:       fmt.Sprintf("http://%s:%s/connect", ip, h.frontendPort),
-		DisplayURL:       fmt.Sprintf("http://%s:%s/display", ip, h.frontendPort),
+		ConnectURL:       connectURL,
+		DisplayURL:       displayURL,
 		ConnectedDevices: h.hub.ConnectedCount(),
 	}
 	c.JSON(http.StatusOK, info)

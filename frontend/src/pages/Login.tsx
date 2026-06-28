@@ -21,7 +21,7 @@ export default function Login() {
       setAuth(token, user)
       navigate(user.role === 'display' ? '/display' : '/')
     } catch {
-      setError('Invalid email or password')
+      setError('Invalid username or password')
     } finally { setLoading(false) }
   }
 
@@ -50,7 +50,7 @@ export default function Login() {
           </div>
         </div>
 
-        {/* Card */}
+        {/* Card — login. ponytail: demo creds removed for production. */}
         <div className="card-hi p-8 shadow-card-hi">
           {/* Top accent */}
           <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand-500/50 to-transparent rounded-t-2xl" />
@@ -60,16 +60,16 @@ export default function Login() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-semibold text-dark-400 uppercase tracking-wider mb-2">
-                Email address
+                Username
               </label>
               <input
-                type="email" autoComplete="email"
+                type="text" autoComplete="username" autoCapitalize="none" spellCheck={false}
                 value={email} onChange={(e) => setEmail(e.target.value)} required
                 className="w-full px-4 py-3 rounded-xl text-dark-100 text-sm
                            bg-dark-900 border border-dark-750
                            focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30
                            placeholder-dark-600 transition-all"
-                placeholder="admin@scoreboard.local"
+                placeholder="username"
               />
             </div>
 
@@ -117,10 +117,6 @@ export default function Login() {
               ) : 'Sign in'}
             </button>
           </form>
-
-          <p className="mt-5 text-center text-xs text-dark-700">
-            admin@scoreboard.local · Admin@1234
-          </p>
         </div>
       </div>
     </div>

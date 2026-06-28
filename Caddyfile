@@ -1,0 +1,7 @@
+# Automatic HTTPS for ScoreCast. DOMAIN comes from .env (docker-compose.prod.yml).
+# Caddy fetches/renews a free Let's Encrypt cert for the domain on its own.
+{$DOMAIN} {
+	encode zstd gzip
+	# WebSockets (/ws) are proxied transparently — no extra config needed.
+	reverse_proxy nginx:80
+}

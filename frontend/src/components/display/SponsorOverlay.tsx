@@ -21,10 +21,11 @@ export function SponsorOverlay({ title, imageUrl, duration, onDone }: Props) {
   const titleRef   = useRef<HTMLParagraphElement>(null)
   const sweepRef   = useRef<HTMLDivElement>(null)
   const video      = isVideo(imageUrl)
+  const onDoneRef  = useRef(onDone); onDoneRef.current = onDone
 
   useEffect(() => {
     if (!overlayRef.current || video) return
-    const tl = gsap.timeline({ onComplete: onDone })
+    const tl = gsap.timeline({ onComplete: () => onDoneRef.current?.() })
 
     tl.fromTo(overlayRef.current, { opacity: 0 }, { opacity: 1, duration: 0.4 })
       .fromTo(labelRef.current, { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }, '-=0.1')
@@ -44,7 +45,10 @@ export function SponsorOverlay({ title, imageUrl, duration, onDone }: Props) {
       .to(overlayRef.current, { opacity: 0, duration: 0.35 }, '-=0.2')
 
     return () => { tl.kill() }
-  }, [duration, onDone, video])
+    // Run once — never restart on parent re-renders (the per-second clock tick),
+    // which would replay the fade-in and cause flicker.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Video sponsor: full-screen playback, ends when the clip ends.
   if (video) {

@@ -43,6 +43,11 @@ func RequireRole(roles ...string) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			return
 		}
+		// Owner is the top tier — satisfies every role requirement.
+		if role == "owner" {
+			c.Next()
+			return
+		}
 		for _, r := range roles {
 			if role == r {
 				c.Next()

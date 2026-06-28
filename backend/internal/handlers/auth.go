@@ -65,10 +65,14 @@ func (h *AuthHandler) CreateUser(c *gin.Context) {
 		return
 	}
 
+	name := req.Name
+	if name == "" {
+		name = req.Email
+	}
 	user := &models.User{
 		Email:        req.Email,
 		PasswordHash: string(hash),
-		Name:         req.Name,
+		Name:         name,
 		Role:         req.Role,
 	}
 	if err := h.userRepo.Create(user); err != nil {
@@ -77,6 +81,59 @@ func (h *AuthHandler) CreateUser(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, user)
+}
+
+// UpdateUser edits a user's username/name/role and (optionally) password.
+func (h *AuthHandler) UpdateUser(c *gin.Context) {
+	id := c.Param("id")
+	var req models.UpdateUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	existing, err := h.userRepo.FindByID(id)
+	if err != nil || existing == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+	email, name, role := req.Email, req.Name, req.Role
+	if email == "" {
+		email = existing.Email
+	}
+	if name == "" {
+		name = existing.Name
+	}
+	if role == "" {
+		role = existing.Role
+	}
+	hash := ""
+	if req.Password != "" {
+		b, herr := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if herr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "password hashing failed"})
+			return
+		}
+		hash = string(b)
+	}
+	if err := h.userRepo.Update(id, email, name, role, hash); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "update failed"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "updated"})
+}
+
+// DeleteUser removes a user (can't delete your own account).
+func (h *AuthHandler) DeleteUser(c *gin.Context) {
+	id := c.Param("id")
+	if id == auth.GetUserID(c) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "you can't delete your own account"})
+		return
+	}
+	if err := h.userRepo.Delete(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "delete failed (user may have created matches)"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
 }
 
 func (h *AuthHandler) ListUsers(c *gin.Context) {

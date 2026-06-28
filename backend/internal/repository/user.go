@@ -47,6 +47,25 @@ func (r *UserRepo) Create(u *models.User) error {
 	).Scan(&u.ID, &u.CreatedAt, &u.UpdatedAt)
 }
 
+// Update changes username/name/role, and password only when a new hash is given.
+func (r *UserRepo) Update(id, email, name string, role models.Role, passwordHash string) error {
+	if passwordHash != "" {
+		_, err := r.db.Exec(
+			`UPDATE users SET email=$1, name=$2, role=$3, password_hash=$4, updated_at=NOW() WHERE id=$5`,
+			email, name, role, passwordHash, id)
+		return err
+	}
+	_, err := r.db.Exec(
+		`UPDATE users SET email=$1, name=$2, role=$3, updated_at=NOW() WHERE id=$4`,
+		email, name, role, id)
+	return err
+}
+
+func (r *UserRepo) Delete(id string) error {
+	_, err := r.db.Exec(`DELETE FROM users WHERE id=$1`, id)
+	return err
+}
+
 func (r *UserRepo) List() ([]models.User, error) {
 	rows, err := r.db.Query(
 		`SELECT id, email, name, role, created_at, updated_at FROM users ORDER BY created_at DESC`,

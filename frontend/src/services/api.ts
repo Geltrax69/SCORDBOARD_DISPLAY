@@ -35,10 +35,16 @@ export const login = (email: string, password: string) =>
 export const getMe = () => api.get<User>('/auth/me').then((r) => r.data)
 
 export const createUser = (data: {
-  email: string; password: string; name: string; role: string
+  email: string; password: string; name?: string; role: string
 }) => api.post<User>('/users', data).then((r) => r.data)
 
 export const listUsers = () => api.get<User[]>('/users').then((r) => r.data)
+
+export const updateUser = (id: string, data: {
+  email?: string; password?: string; name?: string; role?: string
+}) => api.put(`/users/${id}`, data)
+
+export const deleteUser = (id: string) => api.delete(`/users/${id}`)
 
 // Tournaments
 export const listTournaments = () => api.get<Tournament[]>('/tournaments').then((r) => r.data)

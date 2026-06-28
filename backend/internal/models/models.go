@@ -8,7 +8,8 @@ import (
 type Role string
 
 const (
-	RoleSuperAdmin Role = "super_admin"
+	RoleOwner      Role = "owner"       // top tier: manages users + everything an admin can do
+	RoleSuperAdmin Role = "super_admin" // runs tournaments/matches/display
 	RoleScorer     Role = "scorer"
 	RoleDisplay    Role = "display"
 )
@@ -501,7 +502,7 @@ type ServerInfo struct {
 // ── DTOs ─────────────────────────────────────────────────────────────────────
 
 type LoginRequest struct {
-	Email    string `json:"email" binding:"required,email"`
+	Email    string `json:"email" binding:"required"`
 	Password string `json:"password" binding:"required"`
 }
 
@@ -511,10 +512,17 @@ type LoginResponse struct {
 }
 
 type CreateUserRequest struct {
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required,min=6"`
-	Name     string `json:"name" binding:"required"`
+	Email    string `json:"email" binding:"required"`
+	Password string `json:"password" binding:"required,min=4"`
+	Name     string `json:"name"`
 	Role     Role   `json:"role" binding:"required"`
+}
+
+type UpdateUserRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	Name     string `json:"name"`
+	Role     Role   `json:"role"`
 }
 
 type CreateTournamentRequest struct {
