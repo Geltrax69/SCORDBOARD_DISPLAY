@@ -49,6 +49,14 @@ export default function MatchControl() {
     return () => { setCurrentMatch(null); setCurrentState(null); setEvents([]) }
   }, [id])
 
+  // Auto-end a timeout once its duration elapses → match clock resumes on its own.
+  useEffect(() => {
+    if (!id || s?.status !== 'timeout') return
+    const dur = s?.current_timeout?.duration || 60
+    const t = setTimeout(() => { endTimeout(id).catch(() => {}) }, dur * 1000)
+    return () => clearTimeout(t)
+  }, [s?.status, s?.current_timeout?.duration, id])
+
   // Local clock tick — keep the timer moving between WS events (resyncs on each).
   useEffect(() => {
     if (!s?.timer_running) return
