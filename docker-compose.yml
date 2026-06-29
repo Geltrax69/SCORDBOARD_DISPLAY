@@ -38,6 +38,8 @@ services:
       DB_SSLMODE:   disable
       JWT_SECRET:   ${JWT_SECRET:-change_this_secret_in_production_min_32_chars}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
+    volumes:
+      - uploads_data:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -85,6 +87,8 @@ services:
 
 volumes:
   postgres_data:
+    driver: local
+  uploads_data:
     driver: local
 
 networks:

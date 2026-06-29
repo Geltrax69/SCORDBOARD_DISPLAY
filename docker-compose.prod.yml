@@ -37,6 +37,8 @@ services:
       JWT_SECRET:      ${JWT_SECRET:?set a long random JWT_SECRET in .env}
       CORS_ORIGINS:    ${PUBLIC_BASE_URL}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}   # e.g. https://scorecast.simpedu.in → drives QR/connect/display links
+    volumes:
+      - uploads_data:/app/uploads           # persist sponsor/player media across rebuilds
     depends_on:
       postgres: { condition: service_healthy }
     networks: [internal]
@@ -77,6 +79,7 @@ services:
 
 volumes:
   postgres_data:
+  uploads_data:
   caddy_data:
   caddy_config:
 
