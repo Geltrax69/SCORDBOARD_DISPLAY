@@ -200,6 +200,8 @@ type MatchState struct {
 	TimerSeconds   int             `json:"timer_seconds"`
 	TimerRunning   bool            `json:"timer_running"`
 	CurrentTimeout *TimeoutPayload `json:"current_timeout,omitempty"`
+	TimeoutRemaining int           `json:"timeout_remaining,omitempty"` // secs left in the current timeout
+	BreakRemaining   int           `json:"break_remaining,omitempty"`   // secs left in the court-change break
 	Winner         string          `json:"winner,omitempty"`
 
 	// Sepak takraw: best-of-3 sets, rally scoring, serve rotation.
@@ -383,6 +385,8 @@ func CalculateState(events []Event) MatchState {
 			if lastStart == nil {
 				lastStart = &end
 			}
+		} else {
+			state.TimeoutRemaining = int(time.Until(end).Seconds()) + 1
 		}
 	}
 
@@ -397,6 +401,7 @@ func CalculateState(events []Event) MatchState {
 			}
 		} else if lastStart == nil {
 			state.TimerRunning = false // still changing courts
+			state.BreakRemaining = int(time.Until(end).Seconds()) + 1
 		}
 	}
 

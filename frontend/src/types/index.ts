@@ -58,6 +58,8 @@ export interface MatchState {
   timer_seconds: number
   timer_running: boolean
   current_timeout?: TimeoutPayload
+  timeout_remaining?: number
+  break_remaining?: number
   winner?: string
   // Sepak takraw
   sets_a: number

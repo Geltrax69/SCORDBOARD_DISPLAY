@@ -57,6 +57,23 @@ export default function MatchControl() {
     return () => clearTimeout(t)
   }, [s?.status, s?.current_timeout?.duration, id])
 
+  // Countdown for timeout / court-change break — seeds from backend remaining,
+  // ticks down locally, resyncs on each WS state update.
+  const [breakKind, setBreakKind] = useState<'timeout' | 'break' | null>(null)
+  const [breakLeft, setBreakLeft] = useState(0)
+  useEffect(() => {
+    const to = s?.timeout_remaining ?? 0
+    const br = s?.break_remaining ?? 0
+    if (to > 0)      { setBreakKind('timeout'); setBreakLeft(to) }
+    else if (br > 0) { setBreakKind('break');   setBreakLeft(br) }
+    else             { setBreakKind(null);      setBreakLeft(0) }
+  }, [s?.timeout_remaining, s?.break_remaining])
+  useEffect(() => {
+    if (!breakKind) return
+    const t = setInterval(() => setBreakLeft(x => Math.max(0, x - 1)), 1000)
+    return () => clearInterval(t)
+  }, [breakKind])
+
   // Local clock tick — keep the timer moving between WS events (resyncs on each).
   useEffect(() => {
     if (!s?.timer_running) return
@@ -294,6 +311,15 @@ export default function MatchControl() {
               {mins}:{secs}
               {s.timer_running && <span className="ml-2 inline-block h-2 w-2 rounded-full bg-live animate-pulse" />}
             </div>
+            {/* Timeout / court-change countdown */}
+            {breakKind && (
+              <div className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-timeout/30 bg-timeout/10 text-timeout font-mono text-2xl font-black tabular-nums">
+                <span className="text-xs font-bold uppercase tracking-widest">
+                  {breakKind === 'timeout' ? 'Timeout' : 'Court change'}
+                </span>
+                {String(Math.floor(breakLeft / 60)).padStart(2, '0')}:{String(breakLeft % 60).padStart(2, '0')}
+              </div>
+            )}
           </div>
         </div>
       </div>

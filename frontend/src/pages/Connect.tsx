@@ -145,6 +145,23 @@ function ScorerPanel({ match: initialMatch, token: initialToken, onDisconnect }:
     return () => clearTimeout(id)
   }, [state?.status, state?.current_timeout?.duration, match.id, token])
 
+  // Countdown for timeout / court-change break — seeds from backend remaining,
+  // ticks down locally, resyncs on each WS state update.
+  const [breakKind, setBreakKind] = useState<'timeout' | 'break' | null>(null)
+  const [breakLeft, setBreakLeft] = useState(0)
+  useEffect(() => {
+    const to = state?.timeout_remaining ?? 0
+    const br = state?.break_remaining ?? 0
+    if (to > 0)      { setBreakKind('timeout'); setBreakLeft(to) }
+    else if (br > 0) { setBreakKind('break');   setBreakLeft(br) }
+    else             { setBreakKind(null);      setBreakLeft(0) }
+  }, [state?.timeout_remaining, state?.break_remaining])
+  useEffect(() => {
+    if (!breakKind) return
+    const id = setInterval(() => setBreakLeft(x => Math.max(0, x - 1)), 1000)
+    return () => clearInterval(id)
+  }, [breakKind])
+
   // After a set finishes (court change), auto-resume the clock after the 2-min
   // break so the next set starts on its own.
   const prevSets = useRef(state?.completed_sets?.length ?? 0)
@@ -264,6 +281,18 @@ function ScorerPanel({ match: initialMatch, token: initialToken, onDisconnect }:
           <span className="text-xs font-black uppercase tracking-widest px-3 py-1 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/40">
             {matchPoint ? `Match Point — ${matchPoint === 'A' ? match.team_a : match.team_b}`
                         : `Set Point — ${setPoint === 'A' ? match.team_a : match.team_b}`}
+          </span>
+        </div>
+      )}
+
+      {/* Timeout / court-change countdown */}
+      {breakKind && !ended && (
+        <div className="text-center mt-1">
+          <span className="inline-flex items-center gap-2 text-sm font-black uppercase tracking-widest px-4 py-1.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/40">
+            {breakKind === 'timeout' ? 'Timeout' : 'Court Change'}
+            <span className="font-mono tabular-nums">
+              {String(Math.floor(breakLeft / 60)).padStart(2, '0')}:{String(breakLeft % 60).padStart(2, '0')}
+            </span>
           </span>
         </div>
       )}
