@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/scoreboard/backend/internal/auth"
 	"github.com/scoreboard/backend/internal/models"
 	"github.com/scoreboard/backend/internal/repository"
 )
@@ -43,7 +44,7 @@ func (h *CourtHandler) List(c *gin.Context) {
 	if tournamentID != "" {
 		courts, err = h.courtRepo.ListByTournament(tournamentID)
 	} else {
-		courts, err = h.courtRepo.List()
+		courts, err = h.courtRepo.List(auth.GetUserID(c), auth.GetRole(c) == "owner")
 	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list courts"})

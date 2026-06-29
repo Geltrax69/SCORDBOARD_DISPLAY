@@ -39,7 +39,7 @@ func (h *TournamentHandler) Create(c *gin.Context) {
 }
 
 func (h *TournamentHandler) List(c *gin.Context) {
-	ts, err := h.repo.List()
+	ts, err := h.repo.List(auth.GetUserID(c), auth.GetRole(c) == "owner")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list tournaments"})
 		return

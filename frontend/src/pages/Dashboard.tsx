@@ -373,7 +373,7 @@ export default function Dashboard() {
                 <Activity size={14} className="text-brand-400" />
                 <span className="text-xs text-dark-500 font-medium uppercase tracking-widest">Tournament Dashboard</span>
               </div>
-              <h1 className="text-2xl font-black text-white">Welcome back, {user?.name} 👋</h1>
+              <h1 className="text-2xl font-black text-white">Welcome back, {user?.email} 👋</h1>
             </div>
             <div className="flex items-center gap-3">
               <div className={clsx(

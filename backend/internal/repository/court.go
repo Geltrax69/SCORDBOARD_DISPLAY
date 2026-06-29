@@ -52,10 +52,17 @@ func (r *CourtRepo) ListByTournament(tournamentID string) ([]models.Court, error
 	return courts, rows.Err()
 }
 
-func (r *CourtRepo) List() ([]models.Court, error) {
-	rows, err := r.db.Query(
-		`SELECT id, name, tournament_id, created_at FROM courts ORDER BY name`,
-	)
+// List returns courts scoped to a user (via their tournaments). If all is true (owner), returns every court.
+func (r *CourtRepo) List(userID string, all bool) ([]models.Court, error) {
+	q := `SELECT c.id, c.name, c.tournament_id, c.created_at
+	      FROM courts c JOIN tournaments t ON t.id = c.tournament_id`
+	var args []interface{}
+	if !all {
+		q += ` WHERE t.created_by = $1`
+		args = append(args, userID)
+	}
+	q += ` ORDER BY c.name`
+	rows, err := r.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}

@@ -80,10 +80,10 @@ function Navbar() {
         <div className="flex items-center gap-2 pl-3 border-l border-dark-800">
           <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-brand-500 to-brand-700
                           flex items-center justify-center text-white text-xs font-black">
-            {user?.name?.[0]?.toUpperCase() ?? 'A'}
+            {user?.email?.[0]?.toUpperCase() ?? 'A'}
           </div>
           <div className="hidden sm:block text-right">
-            <p className="text-xs font-semibold text-dark-100 leading-none">{user?.name}</p>
+            <p className="text-xs font-semibold text-dark-100 leading-none">{user?.email}</p>
             <p className="text-[10px] text-dark-500 mt-0.5 capitalize">{user?.role?.replace('_',' ')}</p>
           </div>
           <button onClick={clearAuth}

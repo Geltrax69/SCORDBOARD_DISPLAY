@@ -109,15 +109,24 @@ func (r *MatchRepo) FindByCode(code string) (*models.Match, error) {
 	return m, err
 }
 
-func (r *MatchRepo) List(tournamentID string) ([]models.Match, error) {
+// List returns matches scoped to a user (via their tournaments). If all is true (owner), returns every match.
+func (r *MatchRepo) List(tournamentID, userID string, all bool) ([]models.Match, error) {
 	query := `SELECT ` + matchSelectCols + `
 		FROM matches m
 		LEFT JOIN courts c ON c.id = m.court_id
 		LEFT JOIN tournaments t ON t.id = m.tournament_id`
 	var args []interface{}
+	var where []string
 	if tournamentID != "" {
-		query += ` WHERE m.tournament_id = $1`
 		args = append(args, tournamentID)
+		where = append(where, fmt.Sprintf("m.tournament_id = $%d", len(args)))
+	}
+	if !all {
+		args = append(args, userID)
+		where = append(where, fmt.Sprintf("t.created_by = $%d", len(args)))
+	}
+	if len(where) > 0 {
+		query += ` WHERE ` + strings.Join(where, " AND ")
 	}
 	query += ` ORDER BY m.created_at DESC`
 

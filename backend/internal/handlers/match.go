@@ -59,7 +59,7 @@ func (h *MatchHandler) Create(c *gin.Context) {
 
 func (h *MatchHandler) List(c *gin.Context) {
 	tournamentID := c.Query("tournament_id")
-	matches, err := h.matchRepo.List(tournamentID)
+	matches, err := h.matchRepo.List(tournamentID, auth.GetUserID(c), auth.GetRole(c) == "owner")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list matches"})
 		return

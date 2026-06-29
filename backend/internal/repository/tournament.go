@@ -22,11 +22,16 @@ func (r *TournamentRepo) Create(t *models.Tournament) error {
 	).Scan(&t.ID, &t.Status, &t.CreatedAt, &t.UpdatedAt)
 }
 
-func (r *TournamentRepo) List() ([]models.Tournament, error) {
-	rows, err := r.db.Query(
-		`SELECT id, name, sport, status, created_by, created_at, updated_at
-		 FROM tournaments ORDER BY created_at DESC`,
-	)
+// List returns tournaments scoped to a user. If all is true (owner), returns every tournament.
+func (r *TournamentRepo) List(userID string, all bool) ([]models.Tournament, error) {
+	q := `SELECT id, name, sport, status, created_by, created_at, updated_at FROM tournaments`
+	var args []interface{}
+	if !all {
+		q += ` WHERE created_by = $1`
+		args = append(args, userID)
+	}
+	q += ` ORDER BY created_at DESC`
+	rows, err := r.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
