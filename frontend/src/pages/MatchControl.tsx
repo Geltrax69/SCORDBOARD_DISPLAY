@@ -5,9 +5,10 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 import { useMatchStore } from '@/store/matchStore'
 import { useAuthStore } from '@/store/authStore'
 import { useToastStore } from '@/store/toastStore'
-import { getMatch, listEvents, startMatch, endMatch, startTimer, pauseTimer, endTimeout, updateMatchStatus, deleteMatch, createEvent } from '@/services/api'
+import { getMatch, listEvents, startMatch, endMatch, startTimer, pauseTimer, endTimeout, updateMatchStatus, deleteMatch, createEvent, setFirstServer } from '@/services/api'
 import { TimeoutModal } from '@/components/admin/TimeoutModal'
 import { SubstitutionModal } from '@/components/admin/SubstitutionModal'
+import { TakrawBall } from '@/components/common/TakrawBall'
 import { Modal } from '@/components/common/Modal'
 import { EventHistory } from '@/components/admin/EventHistory'
 import { PageLoader } from '@/components/common/LoadingSpinner'
@@ -151,6 +152,11 @@ export default function MatchControl() {
           <div className="h-8 w-8 rounded-xl flex-shrink-0" style={{ backgroundColor: `${color}25` }} />
         )}
         <h3 className="font-black text-lg truncate" style={{ color }}>{name}</h3>
+        {s.serving === team && (m.status === 'active' || m.status === 'timeout' || m.status === 'paused') && (
+          <span className="ml-auto flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider flex-shrink-0" style={{ color }}>
+            <TakrawBall size="1.2rem" color={color} /> Serving
+          </span>
+        )}
       </div>
 
       {/* Score */}
@@ -328,51 +334,63 @@ export default function MatchControl() {
         {/* Score panels */}
         {!isCompleted && (
           <div className="flex gap-4 items-stretch">
-            <ScorePanel team="A" name={m.team_a} color={m.team_a_color} logo={m.team_a_logo} score={s.score_a} />
+            {ScorePanel({ team: 'A', name: m.team_a, color: m.team_a_color, logo: m.team_a_logo, score: s.score_a })}
             <div className="w-px bg-dark-850 self-stretch" />
-            <ScorePanel team="B" name={m.team_b} color={m.team_b_color} logo={m.team_b_logo} score={s.score_b} />
+            {ScorePanel({ team: 'B', name: m.team_b, color: m.team_b_color, logo: m.team_b_logo, score: s.score_b })}
           </div>
         )}
 
         {/* Match controls */}
         <div className="card-hi p-5">
           <p className="text-xs font-bold text-dark-600 uppercase tracking-widest mb-4">Match Controls</p>
+
+          {/* First server (toss) — pick who serves before the match starts */}
+          {isPending && isSuperAdmin && (
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold text-dark-500 uppercase tracking-wider mr-1">Serves first</span>
+              {(['A', 'B'] as const).map((tm) => {
+                const name = tm === 'A' ? m.team_a : m.team_b
+                const color = tm === 'A' ? m.team_a_color : m.team_b_color
+                const selected = s.serving === tm
+                return (
+                  <button key={tm}
+                    onClick={() => fire(() => setFirstServer(id!, tm), `serve-${tm}`, { loading: 'Setting server…', success: `${name} serves first` })}
+                    className={clsx('flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-bold border transition-all active:scale-95',
+                      selected ? 'border-transparent' : 'border-dark-700 text-dark-300 hover:border-dark-600')}
+                    style={selected ? { backgroundColor: `${color}22`, color, borderColor: `${color}66` } : undefined}>
+                    <TakrawBall size="1.1rem" color={selected ? color : '#64748b'} /> {name}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-2">
-            {isPending && (
-              <ControlBtn variant="success" icon={<Play size={15} />} label="Start Match" btnKey="start"
-                onClick={() => fire(() => startMatch(id!), 'start', { loading: 'Starting match…', success: 'Match started!' })} />
-            )}
-            {(isActive || isTimeout) && isSuperAdmin && (
-              <ControlBtn variant="danger" icon={<Square size={15} />} label="End Match" btnKey="end"
-                onClick={() => setWinnerModalOpen(true)} />
-            )}
-            {isActive && !s.timer_running && (
-              <ControlBtn variant="secondary" icon={<Timer size={15} />} label="Start Timer" btnKey="timer-start"
-                onClick={() => fire(() => startTimer(id!), 'timer-start', { loading: 'Starting timer…', success: 'Timer running' })} />
-            )}
-            {isActive && s.timer_running && (
-              <ControlBtn variant="secondary" icon={<PauseCircle size={15} />} label="Pause Timer" btnKey="timer-pause"
-                onClick={() => fire(() => pauseTimer(id!), 'timer-pause', { loading: 'Pausing timer…', success: 'Timer paused' })} />
-            )}
+            {isPending && ControlBtn({ variant: 'success', icon: <Play size={15} />, label: 'Start Match', btnKey: 'start',
+              onClick: () => fire(() => startMatch(id!), 'start', { loading: 'Starting match…', success: 'Match started!' }) })}
+            {(isActive || isTimeout) && isSuperAdmin && ControlBtn({ variant: 'danger', icon: <Square size={15} />, label: 'End Match', btnKey: 'end',
+              onClick: () => setWinnerModalOpen(true) })}
+            {isActive && !s.timer_running && ControlBtn({ variant: 'secondary', icon: <Timer size={15} />, label: 'Start Timer', btnKey: 'timer-start',
+              onClick: () => fire(() => startTimer(id!), 'timer-start', { loading: 'Starting timer…', success: 'Timer running' }) })}
+            {isActive && s.timer_running && ControlBtn({ variant: 'secondary', icon: <PauseCircle size={15} />, label: 'Pause Timer', btnKey: 'timer-pause',
+              onClick: () => fire(() => pauseTimer(id!), 'timer-pause', { loading: 'Pausing timer…', success: 'Timer paused' }) })}
             {isActive && (
               <>
-                <ControlBtn variant="secondary" icon={<AlertTriangle size={15} />} label="Timeout" btnKey="timeout-open"
-                  onClick={() => setTimeoutOpen(true)} />
-                <ControlBtn variant="secondary" icon={<ArrowDownUp size={15} />} label="Substitution" btnKey="sub-open"
-                  onClick={() => setSubOpen(true)} />
+                {ControlBtn({ variant: 'secondary', icon: <AlertTriangle size={15} />, label: 'Timeout', btnKey: 'timeout-open',
+                  onClick: () => setTimeoutOpen(true) })}
+                {ControlBtn({ variant: 'secondary', icon: <ArrowDownUp size={15} />, label: 'Substitution', btnKey: 'sub-open',
+                  onClick: () => setSubOpen(true) })}
               </>
             )}
-            {isTimeout && (
-              <ControlBtn variant="success" icon={<Play size={15} />} label="End Timeout" btnKey="end-timeout"
-                onClick={() => fire(() => endTimeout(id!), 'end-timeout', { loading: 'Ending timeout…', success: 'Timeout ended' })} />
-            )}
+            {isTimeout && ControlBtn({ variant: 'success', icon: <Play size={15} />, label: 'End Timeout', btnKey: 'end-timeout',
+              onClick: () => fire(() => endTimeout(id!), 'end-timeout', { loading: 'Ending timeout…', success: 'Timeout ended' }) })}
 
             {/* Divider + danger zone */}
             {isSuperAdmin && !isCompleted && (
               <div className="flex items-center gap-2 ml-auto">
                 <div className="h-5 w-px bg-dark-800" />
-                <ControlBtn variant="danger" icon={<StopCircle size={15} />} label="Stop Match" btnKey="stop"
-                  onClick={() => fire(() => updateMatchStatus(id!, 'cancelled'), 'stop', { loading: 'Stopping match…', success: 'Match stopped', error: 'Could not stop match' })} />
+                {ControlBtn({ variant: 'danger', icon: <StopCircle size={15} />, label: 'Cancel Match', btnKey: 'stop',
+                  onClick: () => fire(() => updateMatchStatus(id!, 'cancelled'), 'stop', { loading: 'Cancelling match…', success: 'Match cancelled', error: 'Could not cancel match' }) })}
               </div>
             )}
             {isSuperAdmin && (

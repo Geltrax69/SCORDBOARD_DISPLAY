@@ -46,6 +46,8 @@ function handleMessage(
     case 'score_remove':
     case 'match_start':
     case 'match_end':
+    case 'status_change':
+    case 'serve_set':
     case 'timer_start':
     case 'timer_pause':
     case 'timeout_end': {

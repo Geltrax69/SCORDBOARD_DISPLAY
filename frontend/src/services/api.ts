@@ -121,6 +121,9 @@ export const addScore = (matchId: string, team: 'A' | 'B', points: number) =>
 export const removeScore = (matchId: string, team: 'A' | 'B', points: number) =>
   createEvent(matchId, 'score_remove', { team, points } satisfies ScorePayload)
 
+export const setFirstServer = (matchId: string, team: 'A' | 'B') =>
+  createEvent(matchId, 'serve_set', { team })
+
 export const startMatch = (matchId: string) => createEvent(matchId, 'match_start')
 export const endMatch = (matchId: string) => createEvent(matchId, 'match_end')
 export const startTimer = (matchId: string) => createEvent(matchId, 'timer_start')

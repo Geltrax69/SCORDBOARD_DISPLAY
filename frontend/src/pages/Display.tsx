@@ -1522,6 +1522,34 @@ function SingleMatchDisplay({ lm, players, showPlayerAnim }: { lm: LiveMatch; pl
   )
 }
 
+// One glass score card. Module-level (not nested in CardsMatchDisplay) so it
+// keeps a stable component identity across re-renders — otherwise React remounts
+// it every timer tick / score change, which flashed the score and background.
+function CardsScoreCard({ team, color, logo, score, subtitle, scoreRef, serving }: {
+  team: string; color: string; logo: string; score: number; subtitle?: string
+  scoreRef: React.RefObject<HTMLDivElement | null>; serving: boolean
+}) {
+  return (
+    <div className="w-[40%] rounded-[2rem] bg-black/55 backdrop-blur-md border border-white/10 shadow-2xl flex flex-col items-center justify-center px-6 py-10"
+      style={{ boxShadow: `0 0 60px ${color}22` }}>
+      {logo && <img src={logo} alt="" className="h-16 w-16 object-contain rounded-xl mb-2"
+        onError={(e) => (e.currentTarget.style.display = 'none')} />}
+      <div ref={scoreRef} className="font-black tabular-nums text-white leading-[0.8] select-none"
+        style={{ fontSize: 'clamp(6rem, 16vw, 15rem)' }}>
+        {String(score).padStart(2, '0')}
+      </div>
+      <p className="font-black uppercase tracking-wide text-white flex items-center gap-3 mt-2"
+        style={{ fontSize: 'clamp(1.6rem, 3.4vw, 3.2rem)' }}>
+        <ServeBall show={serving} color={color} /> {team}
+      </p>
+      {subtitle && (
+        <p className="italic text-white/60 uppercase tracking-wide mt-1"
+          style={{ fontSize: 'clamp(0.8rem, 1.3vw, 1.3rem)' }}>{subtitle}</p>
+      )}
+    </div>
+  )
+}
+
 // Alternate "cards" scorecard style (admin-selectable): sponsor ticker on top,
 // two rounded glass score cards over the background, timer + set underneath.
 function CardsMatchDisplay({ lm, players, showPlayerAnim }: { lm: LiveMatch; players: Player[]; showPlayerAnim: boolean }) {
@@ -1550,28 +1578,6 @@ function CardsMatchDisplay({ lm, players, showPlayerAnim }: { lm: LiveMatch; pla
   const mins = String(Math.floor(s.timer_seconds / 60)).padStart(2, '0')
   const secs = String(s.timer_seconds % 60).padStart(2, '0')
   const ticker = (m.tournament_name || 'LIVE MATCH').toUpperCase()
-
-  const Card = ({ team, color, logo, score, subtitle, scoreRef, serving }: {
-    team: string; color: string; logo: string; score: number; subtitle?: string
-    scoreRef: React.RefObject<HTMLDivElement | null>; serving: boolean
-  }) => (
-    <div className="flex-1 max-w-[42%] rounded-[2rem] bg-black/45 backdrop-blur-md flex flex-col items-center justify-center px-6 py-10">
-      {logo && <img src={logo} alt="" className="h-16 w-16 object-contain rounded-xl mb-2"
-        onError={(e) => (e.currentTarget.style.display = 'none')} />}
-      <div ref={scoreRef} className="font-black tabular-nums text-white leading-[0.8] select-none"
-        style={{ fontSize: 'clamp(6rem, 16vw, 15rem)' }}>
-        {String(score).padStart(2, '0')}
-      </div>
-      <p className="font-black uppercase tracking-wide text-white flex items-center gap-3 mt-2"
-        style={{ fontSize: 'clamp(1.6rem, 3.4vw, 3.2rem)' }}>
-        <ServeBall show={serving} color={color} /> {team}
-      </p>
-      {subtitle && (
-        <p className="italic text-white/60 uppercase tracking-wide mt-1"
-          style={{ fontSize: 'clamp(0.8rem, 1.3vw, 1.3rem)' }}>{subtitle}</p>
-      )}
-    </div>
-  )
 
   return (
     <div className="flex-1 flex flex-col relative overflow-hidden">
@@ -1602,10 +1608,10 @@ function CardsMatchDisplay({ lm, players, showPlayerAnim }: { lm: LiveMatch; pla
       </div>
 
       {/* Two score cards */}
-      <div className="flex-1 flex items-center justify-center gap-6 md:gap-10 px-8 relative z-10 min-h-0">
-        <Card team={m.team_a} color={m.team_a_color} logo={m.team_a_logo} score={s.score_a}
+      <div className="flex-1 flex items-center justify-center gap-10 md:gap-16 px-8 relative z-10 min-h-0">
+        <CardsScoreCard team={m.team_a} color={m.team_a_color} logo={m.team_a_logo} score={s.score_a}
           subtitle={m.tournament_name} scoreRef={scoreARef} serving={s.serving === 'A' && serveLive(m.status)} />
-        <Card team={m.team_b} color={m.team_b_color} logo={m.team_b_logo} score={s.score_b}
+        <CardsScoreCard team={m.team_b} color={m.team_b_color} logo={m.team_b_logo} score={s.score_b}
           subtitle={m.tournament_name} scoreRef={scoreBRef} serving={s.serving === 'B' && serveLive(m.status)} />
       </div>
 

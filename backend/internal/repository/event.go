@@ -28,6 +28,13 @@ func (r *EventRepo) Create(e *models.Event) error {
 	).Scan(&e.ID, &e.CreatedAt, &e.Sequence)
 }
 
+// DeleteByType removes all events of a given type for a match. Used to keep a
+// single "first server" record instead of one row per toggle before kickoff.
+func (r *EventRepo) DeleteByType(matchID, eventType string) error {
+	_, err := r.db.Exec(`DELETE FROM events WHERE match_id = $1 AND type = $2`, matchID, eventType)
+	return err
+}
+
 func (r *EventRepo) ListByMatch(matchID string) ([]models.Event, error) {
 	rows, err := r.db.Query(`
 		SELECT e.id, e.match_id, e.type, e.payload,

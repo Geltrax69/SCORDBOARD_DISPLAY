@@ -35,6 +35,11 @@ func (s *MatchService) RecordEvent(matchID, userID, eventType string, payload js
 	if payload == nil {
 		payload = json.RawMessage("{}")
 	}
+	// First-server (toss) is a setting, not a running-play event: keep only the
+	// latest choice so toggling it before kickoff doesn't pile up history rows.
+	if eventType == models.EventServeSet {
+		s.eventRepo.DeleteByType(matchID, models.EventServeSet)
+	}
 	ev := &models.Event{
 		MatchID:   matchID,
 		Type:      eventType,

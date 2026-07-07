@@ -97,6 +97,17 @@ func TestServeRotation(t *testing.T) {
 	}
 }
 
+func TestFirstServerAlternatesEachSet(t *testing.T) {
+	// A serves first in set 1. After set 1 closes, set 2 must open with B serving.
+	st := CalculateState(points(repeat('a', 15))) // A wins set 1 15-0, set 2 at 0-0
+	if st.SetNumber != 2 {
+		t.Fatalf("expected set 2, got set %d", st.SetNumber)
+	}
+	if st.Serving != "B" {
+		t.Fatalf("set 2 should open with B serving (alternates from set 1), got %s", st.Serving)
+	}
+}
+
 func TestMatchPoint(t *testing.T) {
 	// A won set1; in set2 at 14-13 A is at set point AND match point.
 	seq := repeat('a', 15) + alt(26) + "a" // set1 to A, then 13-13, then A->14

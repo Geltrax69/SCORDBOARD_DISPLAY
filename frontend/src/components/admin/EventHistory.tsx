@@ -21,6 +21,7 @@ const EVENT_META: Record<string, { label: string; icon: React.ReactNode; color: 
   timeout_end:    { label: 'Timeout End',  icon: <AlertTriangle size={14} />, color: 'text-dark-400' },
   substitution:   { label: 'Substitution', icon: <ArrowDownUp size={14} />,  color: 'text-purple-400' },
   announcement:   { label: 'Announcement', icon: <Megaphone size={14} />,    color: 'text-pink-400' },
+  serve_set:      { label: 'First Server',  icon: <Play size={14} />,         color: 'text-amber-400' },
 }
 
 function EventRow({ ev, onUndo, onRedo }: { ev: Event; onUndo: (id: string) => void; onRedo: (id: string) => void }) {
@@ -38,6 +39,7 @@ function EventRow({ ev, onUndo, onRedo }: { ev: Event; onUndo: (id: string) => v
       return `Team ${payload.team} · #${payload.number || ''} ${payload.player_out} → ${payload.player_in}`
     }
     if (ev.type === 'announcement') return String(payload.message ?? '')
+    if (ev.type === 'serve_set') return `Team ${payload.team} serves first`
     return ''
   }
 
@@ -104,9 +106,12 @@ export function EventHistory({ events, showAll = false }: Props) {
     markEventRedone(id)
   }
 
-  const displayed = showAllState ? events : events.slice(0, 12)
+  // First-server (toss) is a pre-match setting, not a play event — keep it out of
+  // the history so toggling it before kickoff doesn't clutter the log.
+  const shown = events.filter((e) => e.type !== 'serve_set')
+  const displayed = showAllState ? shown : shown.slice(0, 12)
 
-  if (events.length === 0) {
+  if (shown.length === 0) {
     return (
       <div className="text-center py-10 text-dark-500">
         <Timer size={32} className="mx-auto mb-2 opacity-30" />
@@ -120,14 +125,14 @@ export function EventHistory({ events, showAll = false }: Props) {
       {displayed.map((ev) => (
         <EventRow key={ev.id} ev={ev} onUndo={handleUndo} onRedo={handleRedo} />
       ))}
-      {!showAllState && events.length > 12 && (
+      {!showAllState && shown.length > 12 && (
         <Button
           variant="ghost"
           size="sm"
           className="w-full mt-2"
           onClick={() => setShowAllState(true)}
         >
-          Show all {events.length} events
+          Show all {shown.length} events
         </Button>
       )}
     </div>

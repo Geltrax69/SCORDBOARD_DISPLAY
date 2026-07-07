@@ -77,6 +77,8 @@ export type EventType =
   | 'score_remove'
   | 'match_start'
   | 'match_end'
+  | 'status_change'
+  | 'serve_set'
   | 'timer_start'
   | 'timer_pause'
   | 'timeout_start'
