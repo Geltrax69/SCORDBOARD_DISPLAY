@@ -61,6 +61,7 @@ export default function Display() {
   const [liveMatches, setLiveMatches] = useState<Record<string, LiveMatch>>({})
   const [players, setPlayers]       = useState<Record<string, Player[]>>({})
   const [overlay, setOverlay]       = useState<OverlayState>({ type: 'none' })
+  const [bgUrl, setBgUrl]           = useState('')
   const [loading, setLoading]       = useState(true)
   // Winner takeover + reflow: a just-finished match shows full-screen, then is
   // dropped from the grid so the remaining matches stretch to fill the space.
@@ -86,6 +87,14 @@ export default function Display() {
     }, 20000)
     return () => clearTimeout(t)
   }, [celebrating])
+
+  // Persistent display background (survives reloads; applies to every display).
+  useEffect(() => {
+    fetch(`${API_BASE}/display/background`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setBgUrl(d.background_url || ''))
+      .catch(() => {})
+  }, [])
 
   // ── Load initial data ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -223,6 +232,10 @@ export default function Display() {
         if (p.image_url) setOverlay({ type: 'sponsor', payload: p })
         break
       }
+      case 'display_background': {
+        setBgUrl((payload as unknown as { background_url: string }).background_url || '')
+        break
+      }
       case 'display_layout_change': {
         const p = payload as unknown as { mode: 1|2|3|4|5; match_ids: string[]; show_player_animation?: boolean }
         if (p.mode) {
@@ -300,7 +313,13 @@ export default function Display() {
   multiRef.current = visibleList.length > 1
 
   return (
-    <div className="h-screen bg-dark-950 overflow-hidden relative select-none">
+    <div
+      className="h-screen bg-dark-950 overflow-hidden relative select-none bg-center bg-cover"
+      style={bgUrl ? { backgroundImage: `url(${bgUrl})` } : undefined}
+    >
+      {/* Dark scrim over the background image so scores stay readable */}
+      {bgUrl && <div className="absolute inset-0 bg-black/50 pointer-events-none" />}
+
       {/* WS indicator */}
       <div className={clsx(
         'absolute top-3 right-3 z-10 flex items-center gap-1 text-xs opacity-50',

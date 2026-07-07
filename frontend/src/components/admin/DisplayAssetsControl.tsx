@@ -3,6 +3,7 @@ import { clsx } from 'clsx'
 import { Megaphone, Image as ImageIcon, Send, Trash2, Loader, Upload, Check, Tv, Film, Play } from 'lucide-react'
 import {
   listDisplayAssets, createDisplayAsset, deleteDisplayAsset, showDisplayAsset, uploadMedia,
+  getDisplayBackground, setDisplayBackground,
 } from '@/services/api'
 import type { DisplayAsset } from '@/types'
 
@@ -161,6 +162,8 @@ export function DisplayAssetsControl() {
         </button>
       </div>
 
+      <DisplayBackgroundControl />
+
       {/* Saved list */}
       <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
         {loading ? (
@@ -206,6 +209,58 @@ export function DisplayAssetsControl() {
             </div>
           )
         })}
+      </div>
+    </div>
+  )
+}
+
+// Upload a persistent full-screen background image for every display screen.
+function DisplayBackgroundControl() {
+  const [url, setUrl]           = useState('')
+  const [uploading, setUploading] = useState(false)
+  const [saved, setSaved]       = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { getDisplayBackground().then(setUrl).catch(() => {}) }, [])
+
+  const apply = async (next: string) => {
+    setUrl(next)
+    await setDisplayBackground(next)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
+  const onPick = async (file?: File) => {
+    if (!file) return
+    setUploading(true)
+    try { const { url } = await uploadMedia(file); await apply(url) }
+    finally { setUploading(false) }
+  }
+
+  return (
+    <div className="rounded-xl border border-dark-750 bg-dark-900/60 p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <ImageIcon size={15} className="text-brand-400" />
+        <span className="text-sm font-semibold text-dark-100">Display background</span>
+        {saved && <span className="ml-auto flex items-center gap-1 text-xs text-live"><Check size={13} /> Saved</span>}
+      </div>
+      <input ref={fileRef} type="file" accept="image/*" className="hidden"
+        onChange={(e) => onPick(e.target.files?.[0])} />
+      <div className="flex items-center gap-3">
+        {url ? (
+          <img src={url} alt="" className="h-12 w-20 object-cover rounded-lg bg-dark-925 border border-dark-700" />
+        ) : (
+          <div className="h-12 w-20 rounded-lg bg-dark-925 border border-dark-700 flex items-center justify-center text-xs text-dark-600">None</div>
+        )}
+        <button onClick={() => fileRef.current?.click()} disabled={uploading}
+          className="flex items-center gap-2 px-3.5 py-2 rounded-lg border border-dashed border-dark-600
+                     text-dark-400 text-sm hover:border-brand-500/50 hover:text-dark-200 transition-all">
+          {uploading ? <Loader size={14} className="animate-spin" /> : <Upload size={14} />}
+          {url ? 'Replace image' : 'Upload image'}
+        </button>
+        {url && (
+          <button onClick={() => apply('')} className="text-xs text-danger hover:underline ml-auto">Clear</button>
+        )}
       </div>
     </div>
   )

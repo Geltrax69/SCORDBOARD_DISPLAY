@@ -159,4 +159,10 @@ export const announce = (message: string, duration = 10) =>
 export const setDisplayLayout = (layout: DisplayLayoutPayload) =>
   api.post('/display/layout', layout)
 
+export const getDisplayBackground = () =>
+  api.get<{ background_url: string }>('/display/background').then((r) => r.data.background_url)
+
+export const setDisplayBackground = (background_url: string) =>
+  api.post('/display/background', { background_url })
+
 export default api

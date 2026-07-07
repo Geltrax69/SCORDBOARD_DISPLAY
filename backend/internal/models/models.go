@@ -117,6 +117,7 @@ const (
 	EventAnnouncement  = "announcement"
 	EventDisplayLayout = "display_layout_change"
 	EventSponsorShow   = "sponsor_show"
+	EventDisplayBackground = "display_background" // persistent full-screen bg image
 	EventServeSet      = "serve_set" // referee sets who serves first (toss)
 )
 

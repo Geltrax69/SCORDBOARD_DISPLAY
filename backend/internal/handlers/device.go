@@ -23,10 +23,11 @@ type DeviceHandler struct {
 	jwtSecret     string
 	frontendPort  string // e.g. "3000"
 
-	// Current display layout (in-memory + DB backed)
-	layoutMu sync.RWMutex
-	layout   models.DisplayLayoutPayload
-	db       *sql.DB
+	// Current display layout + background (in-memory + DB backed)
+	layoutMu   sync.RWMutex
+	layout     models.DisplayLayoutPayload
+	background string
+	db         *sql.DB
 }
 
 func NewDeviceHandler(hub *ws_pkg.Hub, matchRepo *repository.MatchRepo, secret string, info *models.ServerInfo, db *sql.DB) *DeviceHandler {
@@ -35,11 +36,11 @@ func NewDeviceHandler(hub *ws_pkg.Hub, matchRepo *repository.MatchRepo, secret s
 		jwtSecret: secret, frontendPort: "3000", db: db,
 		layout: models.DisplayLayoutPayload{Mode: 1, MatchIDs: []string{}},
 	}
-	// Load persisted layout
+	// Load persisted layout + background
 	var mode int
 	var matchIDsJSON []byte
-	err := db.QueryRow(`SELECT mode, array_to_json(match_ids) FROM current_display_layout LIMIT 1`).
-		Scan(&mode, &matchIDsJSON)
+	err := db.QueryRow(`SELECT mode, array_to_json(match_ids), background_url FROM current_display_layout LIMIT 1`).
+		Scan(&mode, &matchIDsJSON, &h.background)
 	if err == nil {
 		var ids []string
 		if json.Unmarshal(matchIDsJSON, &ids) == nil {
@@ -188,6 +189,36 @@ func (h *DeviceHandler) SetLayout(c *gin.Context) {
 	})
 
 	c.JSON(http.StatusOK, layout)
+}
+
+// GetBackground returns the current persistent display background image URL.
+func (h *DeviceHandler) GetBackground(c *gin.Context) {
+	h.layoutMu.RLock()
+	defer h.layoutMu.RUnlock()
+	c.JSON(http.StatusOK, gin.H{"background_url": h.background})
+}
+
+// SetBackground stores the display background image (empty = clear), persists it,
+// and broadcasts to every screen (including single-match displays).
+func (h *DeviceHandler) SetBackground(c *gin.Context) {
+	var req struct {
+		BackgroundURL string `json:"background_url"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	h.layoutMu.Lock()
+	h.background = req.BackgroundURL
+	h.layoutMu.Unlock()
+
+	go h.db.Exec(`UPDATE current_display_layout SET background_url=$1, updated_at=NOW()`, req.BackgroundURL)
+
+	payload, _ := json.Marshal(gin.H{"background_url": req.BackgroundURL})
+	h.hub.BroadcastAll(models.WSMessage{Type: models.EventDisplayBackground, Payload: payload})
+
+	c.JSON(http.StatusOK, gin.H{"background_url": req.BackgroundURL})
 }
 
 // pq_array converts []string to PostgreSQL array literal
