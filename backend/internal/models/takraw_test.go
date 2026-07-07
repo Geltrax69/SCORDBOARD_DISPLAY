@@ -29,8 +29,8 @@ func repeat(c byte, n int) string {
 }
 
 func TestSetWinAndReset(t *testing.T) {
-	// A wins set 1 21-0; current set resets, A leads 1-0 in sets.
-	st := CalculateState(points(repeat('a', 21)))
+	// A wins set 1 15-0; current set resets, A leads 1-0 in sets.
+	st := CalculateState(points(repeat('a', 15)))
 	if st.SetsA != 1 || st.SetsB != 0 {
 		t.Fatalf("sets A=%d B=%d, want 1-0", st.SetsA, st.SetsB)
 	}
@@ -46,24 +46,24 @@ func TestSetWinAndReset(t *testing.T) {
 }
 
 func TestDeuceWinByTwo(t *testing.T) {
-	// 20-20 then A scores 2 -> 22-20, a 2-point lead wins the set.
-	st := CalculateState(points(alt(40) + "aa"))
-	if len(st.CompletedSets) != 1 || st.CompletedSets[0] != [2]int{22, 20} {
-		t.Fatalf("completed set = %v, want [22 20]", st.CompletedSets)
+	// 14-14 (all point) then A scores 2 -> 16-14, a 2-point lead wins the set.
+	st := CalculateState(points(alt(28) + "aa"))
+	if len(st.CompletedSets) != 1 || st.CompletedSets[0] != [2]int{16, 14} {
+		t.Fatalf("completed set = %v, want [16 14]", st.CompletedSets)
 	}
 }
 
-func TestCapAt25(t *testing.T) {
-	// 24-24 then A scores 1 -> 25-24, the cap ends the set on a 1-point lead.
-	st := CalculateState(points(alt(48) + "a"))
-	if len(st.CompletedSets) != 1 || st.CompletedSets[0] != [2]int{25, 24} {
-		t.Fatalf("completed set = %v, want [25 24]", st.CompletedSets)
+func TestCapAt17(t *testing.T) {
+	// 16-16 then A scores 1 -> 17-16, the cap ends the set on a 1-point lead.
+	st := CalculateState(points(alt(32) + "a"))
+	if len(st.CompletedSets) != 1 || st.CompletedSets[0] != [2]int{17, 16} {
+		t.Fatalf("completed set = %v, want [17 16]", st.CompletedSets)
 	}
 }
 
 func TestMatchCompletesBestOfThree(t *testing.T) {
-	// A wins set1 (21-0) and set2 (21-0) -> match over, winner A.
-	st := CalculateState(points(repeat('a', 42)))
+	// A wins set1 (15-0) and set2 (15-0) -> match over, winner A.
+	st := CalculateState(points(repeat('a', 30)))
 	if st.Status != "completed" || st.Winner != "A" {
 		t.Fatalf("match status=%q winner=%q, want completed/A", st.Status, st.Winner)
 	}
@@ -74,7 +74,7 @@ func TestMatchCompletesBestOfThree(t *testing.T) {
 
 func TestTieBreakTo15(t *testing.T) {
 	// A set1, B set2, then deciding set to 15.
-	seq := repeat('a', 21) + repeat('b', 21) + repeat('a', 15)
+	seq := repeat('a', 15) + repeat('b', 15) + repeat('a', 15)
 	st := CalculateState(points(seq))
 	if st.Status != "completed" || st.Winner != "A" {
 		t.Fatalf("status=%q winner=%q want completed/A", st.Status, st.Winner)
@@ -99,14 +99,22 @@ func TestServeRotation(t *testing.T) {
 }
 
 func TestMatchPoint(t *testing.T) {
-	// A won set1; in set2 at 20-19 A is at set point AND match point.
-	seq := repeat('a', 21) + alt(38) + "a" // set1 to A, then 19-19, then A->20
+	// A won set1; in set2 at 14-13 A is at set point AND match point.
+	seq := repeat('a', 15) + alt(26) + "a" // set1 to A, then 13-13, then A->14
 	st := CalculateState(points(seq))
-	if st.ScoreA != 20 || st.ScoreB != 19 {
-		t.Fatalf("set2 score %d-%d, want 20-19", st.ScoreA, st.ScoreB)
+	if st.ScoreA != 14 || st.ScoreB != 13 {
+		t.Fatalf("set2 score %d-%d, want 14-13", st.ScoreA, st.ScoreB)
 	}
 	if st.SetPoint != "A" || st.MatchPoint != "A" {
 		t.Fatalf("setPoint=%q matchPoint=%q, want A/A", st.SetPoint, st.MatchPoint)
+	}
+}
+
+func TestDeuceFlagAt14All(t *testing.T) {
+	// 14-14 is "all point": deuce set, no team at set point yet.
+	st := CalculateState(points(alt(28)))
+	if !st.Deuce || st.SetPoint != "" {
+		t.Fatalf("at 14-14 want deuce/no setpoint, got deuce=%v setPoint=%q", st.Deuce, st.SetPoint)
 	}
 }
 

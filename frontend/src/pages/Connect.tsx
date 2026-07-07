@@ -284,6 +284,13 @@ function ScorerPanel({ match: initialMatch, token: initialToken, onDisconnect }:
           </span>
         </div>
       )}
+      {state?.deuce && !setPoint && !matchPoint && !ended && (
+        <div className="text-center -mb-1">
+          <span className="text-xs font-black uppercase tracking-widest px-3 py-1 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/40">
+            All Point
+          </span>
+        </div>
+      )}
 
       {/* Timeout / court-change countdown */}
       {breakKind && !ended && (

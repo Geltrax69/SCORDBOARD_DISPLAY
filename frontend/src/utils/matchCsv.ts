@@ -12,7 +12,7 @@ const STARTS = new Set(['timer_start', 'timeout_end'])
 
 // Sepak Takraw set rules (mirror of backend setLimits/setWon).
 // ponytail: duplicated from Go; keep in sync if the ruleset changes.
-const setLimits = (i: number) => (i >= 2 ? { target: 15, cap: 17 } : { target: 21, cap: 25 })
+const setLimits = (_i: number) => ({ target: 15, cap: 17 })
 const setWon = (x: number, y: number, t: number, c: number) => (x >= t && x - y >= 2) || x >= c
 
 const fmtClock = (sec: number) =>

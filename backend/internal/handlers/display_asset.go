@@ -87,7 +87,7 @@ func (h *AssetHandler) Show(c *gin.Context) {
 			ImageURL: asset.ImageURL,
 			Duration: asset.Duration,
 		})
-		h.hub.BroadcastGlobal(models.WSMessage{Type: models.EventSponsorShow, Payload: payload})
+		h.hub.BroadcastAll(models.WSMessage{Type: models.EventSponsorShow, Payload: payload})
 	} else {
 		payload, _ := json.Marshal(models.AnnouncementPayload{
 			Message:  asset.Body,
@@ -95,7 +95,7 @@ func (h *AssetHandler) Show(c *gin.Context) {
 			ImageURL: asset.ImageURL,
 			Duration: asset.Duration,
 		})
-		h.hub.BroadcastGlobal(models.WSMessage{Type: models.EventAnnouncement, Payload: payload})
+		h.hub.BroadcastAll(models.WSMessage{Type: models.EventAnnouncement, Payload: payload})
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "shown"})

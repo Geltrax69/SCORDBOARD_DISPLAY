@@ -142,6 +142,20 @@ func (h *Hub) BroadcastGlobal(msg models.WSMessage) {
 	h.broadcast <- roomMessage{room: "global", message: data}
 }
 
+// BroadcastAll sends to every connected client regardless of room, so a display
+// scoped to a single match still receives global overlays (sponsors, announcements).
+func (h *Hub) BroadcastAll(msg models.WSMessage) {
+	data, _ := json.Marshal(msg)
+	h.mu.RLock()
+	for client := range h.clients {
+		select {
+		case client.send <- data:
+		default:
+		}
+	}
+	h.mu.RUnlock()
+}
+
 func (h *Hub) Register(c *Client) {
 	h.register <- c
 }

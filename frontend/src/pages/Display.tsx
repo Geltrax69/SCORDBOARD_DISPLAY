@@ -83,7 +83,7 @@ export default function Display() {
     const t = setTimeout(() => {
       setDismissed((prev) => new Set(prev).add(id))
       setCelebrating(null)
-    }, 8000)
+    }, 20000)
     return () => clearTimeout(t)
   }, [celebrating])
 
@@ -215,7 +215,7 @@ export default function Display() {
       }
       case 'announcement': {
         const p = payload as unknown as AnnouncementPayload
-        if (p.message) setOverlay({ type: 'announcement', payload: p })
+        if (p.message || p.title || p.image_url) setOverlay({ type: 'announcement', payload: p })
         break
       }
       case 'sponsor_show': {
@@ -1380,6 +1380,11 @@ function SingleMatchDisplay({ lm, players, showPlayerAnim }: { lm: LiveMatch; pl
               {s.match_point
                 ? `Match Point · ${s.match_point === 'A' ? m.team_a : m.team_b}`
                 : `Set Point · ${s.set_point === 'A' ? m.team_a : m.team_b}`}
+            </span>
+          )}
+          {s.deuce && !s.match_point && !s.set_point && m.status === 'active' && (
+            <span className="text-sm font-black uppercase tracking-widest px-5 py-1.5 rounded-full border-2 border-amber-400/60 bg-amber-400/15 text-amber-300 whitespace-nowrap animate-pulse">
+              All Point
             </span>
           )}
         </div>

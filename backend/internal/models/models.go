@@ -120,14 +120,11 @@ const (
 	EventServeSet      = "serve_set" // referee sets who serves first (toss)
 )
 
-// Sepak takraw set targets: sets 1-2 play to 21 (cap 25); the deciding 3rd set
-// (tie-break) plays to 15 (cap 17). deuceAt is the score at which serve and the
-// win condition switch to "win by 2 / first to cap".
+// All sets play to 15 (cap 17). deuceAt (14) is the score at which serve and the
+// win condition switch to "win by 2 / first to cap": at 14-14 it's deuce and the
+// first team to 17 wins.
 func setLimits(setIdx int) (target, capPts, deuceAt int) {
-	if setIdx >= 2 {
-		return 15, 17, 14
-	}
-	return 21, 25, 20
+	return 15, 17, 14
 }
 
 // setWon reports whether score x beats y under sepak takraw rules: reach target
@@ -212,6 +209,7 @@ type MatchState struct {
 	Serving       string     `json:"serving"`        // "A" | "B" — who serves the next rally
 	SetPoint      string     `json:"set_point,omitempty"`   // team one point from winning the set
 	MatchPoint    string     `json:"match_point,omitempty"` // team one point from winning the match
+	Deuce         bool       `json:"deuce,omitempty"`       // both teams at deuceAt+ ("all point", win by 2 / first to cap)
 }
 
 func CalculateState(events []Event) MatchState {
@@ -455,7 +453,10 @@ func CalculateState(events []Event) MatchState {
 	// Set point / match point: a team is at set point if one more point wins the
 	// current set; it's also match point if winning that set wins the match.
 	if !matchOver && state.Status != "completed" {
-		target, capPts, _ := setLimits(setIdx)
+		target, capPts, deuceAt := setLimits(setIdx)
+		if state.ScoreA >= deuceAt && state.ScoreB >= deuceAt {
+			state.Deuce = true
+		}
 		if setWon(state.ScoreA+1, state.ScoreB, target, capPts) {
 			state.SetPoint = "A"
 			if state.SetsA == 1 {

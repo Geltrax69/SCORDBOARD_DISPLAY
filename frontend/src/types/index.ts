@@ -69,6 +69,7 @@ export interface MatchState {
   serving: 'A' | 'B' | ''
   set_point?: 'A' | 'B'
   match_point?: 'A' | 'B'
+  deuce?: boolean
 }
 
 export type EventType =
