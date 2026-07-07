@@ -15,6 +15,7 @@ import { SponsorOverlay } from '@/components/display/SponsorOverlay'
 import { PlayerLineup } from '@/components/display/PlayerLineup'
 import { VideoPlayer } from '@/components/display/VideoPlayer'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
+import { TakrawBall } from '@/components/common/TakrawBall'
 import type {
   WSMessage, Match, MatchState, TimeoutPayload,
   SubstitutionPayload, AnnouncementPayload, SponsorPayload, Player,
@@ -1261,12 +1262,16 @@ function PreMatchIntro({ m, players, showPlayerAnim }: { m: Match; players: Play
 // Pulsing ball shown next to the team serving the next rally.
 // Clear "to serve" badge — a pulsing ball + SERVE label in the team's colour,
 // so it's obvious which side serves the next rally.
+// Serve indicator is meaningful while the rally is in play or about to resume —
+// show it during active/timeout/paused so the audience always knows who serves.
+const serveLive = (status: string) => status === 'active' || status === 'timeout' || status === 'paused'
+
 function ServeBall({ show, size = 'clamp(0.9rem, 1.4vw, 1.6rem)', color = '#fbbf24' }: { show: boolean; size?: string; color?: string }) {
   if (!show) return null
   return (
-    <span className="inline-block rounded-full flex-shrink-0 align-middle animate-pulse"
-      style={{ width: size, height: size, background: color, boxShadow: `0 0 16px ${color}, 0 0 4px ${color}` }}
-      title="Serving next rally" />
+    <span className="inline-flex flex-shrink-0 align-middle animate-pulse" title="Serving next rally">
+      <TakrawBall size={size} color={color} />
+    </span>
   )
 }
 
@@ -1441,7 +1446,7 @@ function SingleMatchDisplay({ lm, players, showPlayerAnim }: { lm: LiveMatch; pl
               textShadow: `0 0 50px ${m.team_a_color}45`,
             }}
           >
-            <ServeBall show={s.serving === 'A' && m.status === 'active'} color={m.team_a_color} /> {m.team_a}
+            <ServeBall show={s.serving === 'A' && serveLive(m.status)} color={m.team_a_color} size="clamp(1.4rem, 2.2vw, 2.6rem)" /> {m.team_a}
           </p>
           <div
             ref={scoreARef}
@@ -1475,7 +1480,7 @@ function SingleMatchDisplay({ lm, players, showPlayerAnim }: { lm: LiveMatch; pl
               textShadow: `0 0 50px ${m.team_b_color}45`,
             }}
           >
-            {m.team_b} <ServeBall show={s.serving === 'B' && m.status === 'active'} color={m.team_b_color} />
+            {m.team_b} <ServeBall show={s.serving === 'B' && serveLive(m.status)} color={m.team_b_color} size="clamp(1.4rem, 2.2vw, 2.6rem)" />
           </p>
           <div
             ref={scoreBRef}
@@ -1599,9 +1604,9 @@ function CardsMatchDisplay({ lm, players, showPlayerAnim }: { lm: LiveMatch; pla
       {/* Two score cards */}
       <div className="flex-1 flex items-center justify-center gap-6 md:gap-10 px-8 relative z-10 min-h-0">
         <Card team={m.team_a} color={m.team_a_color} logo={m.team_a_logo} score={s.score_a}
-          subtitle={m.tournament_name} scoreRef={scoreARef} serving={s.serving === 'A' && m.status === 'active'} />
+          subtitle={m.tournament_name} scoreRef={scoreARef} serving={s.serving === 'A' && serveLive(m.status)} />
         <Card team={m.team_b} color={m.team_b_color} logo={m.team_b_logo} score={s.score_b}
-          subtitle={m.tournament_name} scoreRef={scoreBRef} serving={s.serving === 'B' && m.status === 'active'} />
+          subtitle={m.tournament_name} scoreRef={scoreBRef} serving={s.serving === 'B' && serveLive(m.status)} />
       </div>
 
       {/* Timer + set */}
@@ -1802,7 +1807,7 @@ function CompactScore({ lm, index = 0, dense = false, players = [], showPlayerAn
           <p className="text-sm font-bold uppercase tracking-wide flex items-center gap-1.5 text-center leading-tight"
              style={{ color: m.team_a_color }}>
             {isCompleted && winnerKey === 'A' && <span title="Winner">🏆</span>}
-            <ServeBall show={s.serving === 'A' && m.status === 'active'} size="0.6rem" />
+            <ServeBall show={s.serving === 'A' && serveLive(m.status)} size="0.9rem" color={m.team_a_color} />
             {m.team_a}
           </p>
           <div ref={scoreARef} className="font-black font-score tabular-nums leading-none"
@@ -1823,7 +1828,7 @@ function CompactScore({ lm, index = 0, dense = false, players = [], showPlayerAn
           <p className="text-sm font-bold uppercase tracking-wide flex items-center gap-1.5 text-center leading-tight"
              style={{ color: m.team_b_color }}>
             {m.team_b}
-            <ServeBall show={s.serving === 'B' && m.status === 'active'} size="0.6rem" />
+            <ServeBall show={s.serving === 'B' && serveLive(m.status)} size="0.9rem" color={m.team_b_color} />
             {isCompleted && winnerKey === 'B' && <span title="Winner">🏆</span>}
           </p>
           <div ref={scoreBRef} className="font-black font-score tabular-nums leading-none"

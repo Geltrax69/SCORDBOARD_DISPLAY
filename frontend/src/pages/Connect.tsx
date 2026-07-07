@@ -5,6 +5,7 @@ import { Button } from '@/components/common/Button'
 import { scoreboardWS } from '@/services/websocket'
 import { SubstitutionModal } from '@/components/admin/SubstitutionModal'
 import { Modal } from '@/components/common/Modal'
+import { TakrawBall } from '@/components/common/TakrawBall'
 import type { Match, MatchState, WSMessage } from '@/types'
 
 const API_BASE = import.meta.env.VITE_API_URL ?? '/api'
@@ -42,9 +43,9 @@ function fmt(s: number) {
 function ServeBall({ show, color = '#fbbf24' }: { show: boolean; color?: string }) {
   if (!show) return null
   return (
-    <span title="Serving next rally"
-      className="inline-block h-2.5 w-2.5 rounded-full align-middle animate-pulse"
-      style={{ background: color, boxShadow: `0 0 8px ${color}` }} />
+    <span title="Serving next rally" className="inline-flex align-middle animate-pulse">
+      <TakrawBall size="1.1rem" color={color} />
+    </span>
   )
 }
 

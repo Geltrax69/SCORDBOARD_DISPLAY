@@ -85,16 +85,15 @@ func TestTieBreakTo15(t *testing.T) {
 }
 
 func TestServeRotation(t *testing.T) {
-	// First server A (default). Serve passes every 3 points. Alternate the points
-	// so neither side reaches 21 and the set stays open.
+	// First server A (default). Serve alternates every point, regardless of scorer.
+	if st := CalculateState(points(alt(1))); st.Serving != "B" {
+		t.Fatalf("after 1 point serve should pass to B, got %s", st.Serving)
+	}
 	if st := CalculateState(points(alt(2))); st.Serving != "A" {
-		t.Fatalf("after 2 points A still serves, got %s", st.Serving)
+		t.Fatalf("after 2 points serve back to A, got %s", st.Serving)
 	}
 	if st := CalculateState(points(alt(3))); st.Serving != "B" {
-		t.Fatalf("after 3 points serve should pass to B, got %s", st.Serving)
-	}
-	if st := CalculateState(points(alt(6))); st.Serving != "A" {
-		t.Fatalf("after 6 points serve back to A, got %s", st.Serving)
+		t.Fatalf("after 3 points serve to B, got %s", st.Serving)
 	}
 }
 

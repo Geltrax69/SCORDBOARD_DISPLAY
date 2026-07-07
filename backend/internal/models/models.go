@@ -428,10 +428,9 @@ func CalculateState(events []Event) MatchState {
 		}
 	}
 
-	// Serve: the set's first server alternates each set from the toss winner.
-	// Serve passes every 3 points; at deuce (both at deuceAt) it alternates every
-	// point. deuce can only begin at exactly deuceAt-deuceAt, so the switch count
-	// is a closed form over the current set's points.
+	// Serve alternates every point (rally-by-rally): the side serving swaps on
+	// each point regardless of who scores. The set's first server alternates each
+	// set from the toss winner.
 	flip := func(s string, n int) string {
 		if n%2 == 1 {
 			if s == "A" {
@@ -442,15 +441,8 @@ func CalculateState(events []Event) MatchState {
 		return s
 	}
 	setServer := flip(firstServer, setIdx)
-	_, _, deuceAt := setLimits(setIdx)
 	total := state.ScoreA + state.ScoreB
-	deuceTotal := 2 * deuceAt
-	if total < deuceTotal {
-		state.Serving = flip(setServer, total/3)
-	} else {
-		base := flip(setServer, deuceTotal/3)
-		state.Serving = flip(base, total-deuceTotal)
-	}
+	state.Serving = flip(setServer, total)
 
 	// Set point / match point: a team is at set point if one more point wins the
 	// current set; it's also match point if winning that set wins the match.
