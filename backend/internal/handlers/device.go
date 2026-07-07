@@ -27,6 +27,7 @@ type DeviceHandler struct {
 	layoutMu   sync.RWMutex
 	layout     models.DisplayLayoutPayload
 	background string
+	style      string
 	db         *sql.DB
 }
 
@@ -35,12 +36,13 @@ func NewDeviceHandler(hub *ws_pkg.Hub, matchRepo *repository.MatchRepo, secret s
 		hub: hub, matchRepo: matchRepo,
 		jwtSecret: secret, frontendPort: "3000", db: db,
 		layout: models.DisplayLayoutPayload{Mode: 1, MatchIDs: []string{}},
+		style:  "classic",
 	}
-	// Load persisted layout + background
+	// Load persisted layout + background + style
 	var mode int
 	var matchIDsJSON []byte
-	err := db.QueryRow(`SELECT mode, array_to_json(match_ids), background_url FROM current_display_layout LIMIT 1`).
-		Scan(&mode, &matchIDsJSON, &h.background)
+	err := db.QueryRow(`SELECT mode, array_to_json(match_ids), background_url, display_style FROM current_display_layout LIMIT 1`).
+		Scan(&mode, &matchIDsJSON, &h.background, &h.style)
 	if err == nil {
 		var ids []string
 		if json.Unmarshal(matchIDsJSON, &ids) == nil {
@@ -219,6 +221,38 @@ func (h *DeviceHandler) SetBackground(c *gin.Context) {
 	h.hub.BroadcastAll(models.WSMessage{Type: models.EventDisplayBackground, Payload: payload})
 
 	c.JSON(http.StatusOK, gin.H{"background_url": req.BackgroundURL})
+}
+
+// GetStyle returns the current scorecard display style ('classic' | 'cards').
+func (h *DeviceHandler) GetStyle(c *gin.Context) {
+	h.layoutMu.RLock()
+	defer h.layoutMu.RUnlock()
+	c.JSON(http.StatusOK, gin.H{"style": h.style})
+}
+
+// SetStyle stores the scorecard style, persists it, and broadcasts to all screens.
+func (h *DeviceHandler) SetStyle(c *gin.Context) {
+	var req struct {
+		Style string `json:"style"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Style != "cards" {
+		req.Style = "classic"
+	}
+
+	h.layoutMu.Lock()
+	h.style = req.Style
+	h.layoutMu.Unlock()
+
+	go h.db.Exec(`UPDATE current_display_layout SET display_style=$1, updated_at=NOW()`, req.Style)
+
+	payload, _ := json.Marshal(gin.H{"style": req.Style})
+	h.hub.BroadcastAll(models.WSMessage{Type: models.EventDisplayStyle, Payload: payload})
+
+	c.JSON(http.StatusOK, gin.H{"style": req.Style})
 }
 
 // pq_array converts []string to PostgreSQL array literal

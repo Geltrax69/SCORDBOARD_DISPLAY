@@ -3,7 +3,7 @@ import { clsx } from 'clsx'
 import { Megaphone, Image as ImageIcon, Send, Trash2, Loader, Upload, Check, Tv, Film, Play } from 'lucide-react'
 import {
   listDisplayAssets, createDisplayAsset, deleteDisplayAsset, showDisplayAsset, uploadMedia,
-  getDisplayBackground, setDisplayBackground,
+  getDisplayBackground, setDisplayBackground, getDisplayStyle, setDisplayStyle,
 } from '@/services/api'
 import type { DisplayAsset } from '@/types'
 
@@ -162,6 +162,7 @@ export function DisplayAssetsControl() {
         </button>
       </div>
 
+      <ScorecardStyleControl />
       <DisplayBackgroundControl />
 
       {/* Saved list */}
@@ -209,6 +210,50 @@ export function DisplayAssetsControl() {
             </div>
           )
         })}
+      </div>
+    </div>
+  )
+}
+
+// Pick which scorecard layout the display screens render.
+function ScorecardStyleControl() {
+  const [style, setStyle] = useState<'classic' | 'cards'>('classic')
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => { getDisplayStyle().then(setStyle).catch(() => {}) }, [])
+
+  const pick = async (next: 'classic' | 'cards') => {
+    setStyle(next)
+    await setDisplayStyle(next)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
+  const opts: { id: 'classic' | 'cards'; label: string; desc: string }[] = [
+    { id: 'classic', label: 'Classic', desc: 'Split screen, big scores' },
+    { id: 'cards', label: 'Cards', desc: 'Glass cards + sponsor ticker' },
+  ]
+
+  return (
+    <div className="rounded-xl border border-dark-750 bg-dark-900/60 p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <Tv size={15} className="text-brand-400" />
+        <span className="text-sm font-semibold text-dark-100">Scorecard style</span>
+        {saved && <span className="ml-auto flex items-center gap-1 text-xs text-live"><Check size={13} /> Saved</span>}
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {opts.map((o) => (
+          <button key={o.id} onClick={() => pick(o.id)}
+            className={clsx(
+              'flex flex-col items-start gap-0.5 px-3.5 py-2.5 rounded-lg border text-left transition-all active:scale-95',
+              style === o.id
+                ? 'border-brand-500 bg-brand-500/15'
+                : 'border-dark-600 bg-dark-800 hover:border-brand-500/40',
+            )}>
+            <span className={clsx('text-sm font-semibold', style === o.id ? 'text-brand-200' : 'text-dark-200')}>{o.label}</span>
+            <span className="text-xs text-dark-500">{o.desc}</span>
+          </button>
+        ))}
       </div>
     </div>
   )

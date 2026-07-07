@@ -62,6 +62,7 @@ export default function Display() {
   const [players, setPlayers]       = useState<Record<string, Player[]>>({})
   const [overlay, setOverlay]       = useState<OverlayState>({ type: 'none' })
   const [bgUrl, setBgUrl]           = useState('')
+  const [cardStyle, setCardStyle]   = useState<'classic' | 'cards'>('classic')
   const [loading, setLoading]       = useState(true)
   // Winner takeover + reflow: a just-finished match shows full-screen, then is
   // dropped from the grid so the remaining matches stretch to fill the space.
@@ -88,11 +89,15 @@ export default function Display() {
     return () => clearTimeout(t)
   }, [celebrating])
 
-  // Persistent display background (survives reloads; applies to every display).
+  // Persistent display background + scorecard style (survive reloads, all displays).
   useEffect(() => {
     fetch(`${API_BASE}/display/background`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => d && setBgUrl(d.background_url || ''))
+      .catch(() => {})
+    fetch(`${API_BASE}/display/style`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setCardStyle(d.style === 'cards' ? 'cards' : 'classic'))
       .catch(() => {})
   }, [])
 
@@ -236,6 +241,10 @@ export default function Display() {
         setBgUrl((payload as unknown as { background_url: string }).background_url || '')
         break
       }
+      case 'display_style': {
+        setCardStyle((payload as unknown as { style: string }).style === 'cards' ? 'cards' : 'classic')
+        break
+      }
       case 'display_layout_change': {
         const p = payload as unknown as { mode: 1|2|3|4|5; match_ids: string[]; show_player_animation?: boolean }
         if (p.mode) {
@@ -335,7 +344,7 @@ export default function Display() {
         ) : visibleList.length === 0 ? (
           <EmptyDisplay label="Waiting for matches" />
         ) : (
-          <MatchGrid matches={visibleList} players={players} showPlayerAnim={showPlayerAnim} fx={cellFx} />
+          <MatchGrid matches={visibleList} players={players} showPlayerAnim={showPlayerAnim} fx={cellFx} cardStyle={cardStyle} />
         )}
       </div>
 
@@ -1508,6 +1517,108 @@ function SingleMatchDisplay({ lm, players, showPlayerAnim }: { lm: LiveMatch; pl
   )
 }
 
+// Alternate "cards" scorecard style (admin-selectable): sponsor ticker on top,
+// two rounded glass score cards over the background, timer + set underneath.
+function CardsMatchDisplay({ lm, players, showPlayerAnim }: { lm: LiveMatch; players: Player[]; showPlayerAnim: boolean }) {
+  const { match: m, state: s } = lm
+  const scoreARef = useRef<HTMLDivElement>(null)
+  const scoreBRef = useRef<HTMLDivElement>(null)
+  const prevA = useRef(s.score_a)
+  const prevB = useRef(s.score_b)
+
+  useEffect(() => {
+    if (s.score_a !== prevA.current && scoreARef.current) {
+      if (s.score_a - prevA.current > 0) animateScore(scoreARef.current, m.team_a_color)
+      prevA.current = s.score_a
+    }
+  }, [s.score_a, m.team_a_color])
+  useEffect(() => {
+    if (s.score_b !== prevB.current && scoreBRef.current) {
+      if (s.score_b - prevB.current > 0) animateScore(scoreBRef.current, m.team_b_color)
+      prevB.current = s.score_b
+    }
+  }, [s.score_b, m.team_b_color])
+
+  if (m.status === 'pending') return <PreMatchIntro m={m} players={players} showPlayerAnim={showPlayerAnim} />
+  if (m.status === 'completed') return <MatchCompletedCelebration lm={lm} />
+
+  const mins = String(Math.floor(s.timer_seconds / 60)).padStart(2, '0')
+  const secs = String(s.timer_seconds % 60).padStart(2, '0')
+  const ticker = (m.tournament_name || 'LIVE MATCH').toUpperCase()
+
+  const Card = ({ team, color, logo, score, subtitle, scoreRef, serving }: {
+    team: string; color: string; logo: string; score: number; subtitle?: string
+    scoreRef: React.RefObject<HTMLDivElement | null>; serving: boolean
+  }) => (
+    <div className="flex-1 max-w-[42%] rounded-[2rem] bg-black/45 backdrop-blur-md flex flex-col items-center justify-center px-6 py-10">
+      {logo && <img src={logo} alt="" className="h-16 w-16 object-contain rounded-xl mb-2"
+        onError={(e) => (e.currentTarget.style.display = 'none')} />}
+      <div ref={scoreRef} className="font-black tabular-nums text-white leading-[0.8] select-none"
+        style={{ fontSize: 'clamp(6rem, 16vw, 15rem)' }}>
+        {String(score).padStart(2, '0')}
+      </div>
+      <p className="font-black uppercase tracking-wide text-white flex items-center gap-3 mt-2"
+        style={{ fontSize: 'clamp(1.6rem, 3.4vw, 3.2rem)' }}>
+        <ServeBall show={serving} color={color} /> {team}
+      </p>
+      {subtitle && (
+        <p className="italic text-white/60 uppercase tracking-wide mt-1"
+          style={{ fontSize: 'clamp(0.8rem, 1.3vw, 1.3rem)' }}>{subtitle}</p>
+      )}
+    </div>
+  )
+
+  return (
+    <div className="flex-1 flex flex-col relative overflow-hidden">
+      {/* Sponsor ticker */}
+      <div className="flex-shrink-0 bg-black/70 overflow-hidden py-2.5 relative z-10">
+        <div className="marquee-track">
+          {[0, 1].map((k) => (
+            <span key={k} className="text-2xl font-bold tracking-wide px-6">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <span key={i}>
+                  <span className="text-amber-500">{ticker}</span>
+                  <span className="text-white mx-4">·</span>
+                </span>
+              ))}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Court + status row */}
+      <div className="flex-shrink-0 flex items-center justify-between px-10 pt-6 relative z-10">
+        <span className="text-white/40 text-base uppercase tracking-[0.3em] font-bold">
+          {m.status === 'active' ? 'LIVE' : m.status.toUpperCase()}
+        </span>
+        {m.court_name && (
+          <span className="text-white/70 text-lg uppercase tracking-wider font-black">{m.court_name}</span>
+        )}
+      </div>
+
+      {/* Two score cards */}
+      <div className="flex-1 flex items-center justify-center gap-6 md:gap-10 px-8 relative z-10 min-h-0">
+        <Card team={m.team_a} color={m.team_a_color} logo={m.team_a_logo} score={s.score_a}
+          subtitle={m.tournament_name} scoreRef={scoreARef} serving={s.serving === 'A' && m.status === 'active'} />
+        <Card team={m.team_b} color={m.team_b_color} logo={m.team_b_logo} score={s.score_b}
+          subtitle={m.tournament_name} scoreRef={scoreBRef} serving={s.serving === 'B' && m.status === 'active'} />
+      </div>
+
+      {/* Timer + set */}
+      <div className="flex-shrink-0 flex flex-col items-center pb-10 pt-2 relative z-10">
+        <span className={clsx('font-mono font-black tabular-nums leading-none',
+          s.timer_running ? 'text-emerald-400' : 'text-white/30')}
+          style={{ fontSize: 'clamp(2.5rem, 5.5vw, 6rem)' }}>
+          {mins}:{secs}
+        </span>
+        <span className="text-white/60 font-bold uppercase tracking-[0.3em] mt-2 text-xl">
+          Set:{String(Math.min(s.set_number || 1, 3)).padStart(2, '0')}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 // In-card moment overlay (multi-match): covers ONE court's card, not the screen.
 function CellFxOverlay({ fx, m }: { fx: CellFx; m: Match }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -1910,7 +2021,7 @@ function gridTemplate(n: number): { cols: string; rows: string } {
 // Auto-sizing match grid. When the set of matches changes, surviving cards
 // smoothly resize/reposition (GSAP Flip) while entering cards fade+scale in —
 // so 4→3, 2→3, 1→4, etc. all reflow like a broadcast director cut.
-function MatchGrid({ matches, players, showPlayerAnim, fx }: { matches: LiveMatch[]; players: Record<string, Player[]>; showPlayerAnim: boolean; fx: Record<string, CellFx> }) {
+function MatchGrid({ matches, players, showPlayerAnim, fx, cardStyle = 'classic' }: { matches: LiveMatch[]; players: Record<string, Player[]>; showPlayerAnim: boolean; fx: Record<string, CellFx>; cardStyle?: 'classic' | 'cards' }) {
   const gridRef = useRef<HTMLDivElement>(null)
   const prevState = useRef<Flip.FlipState | null>(null)
   const n = matches.length
@@ -1942,7 +2053,9 @@ function MatchGrid({ matches, players, showPlayerAnim, fx }: { matches: LiveMatc
       {matches.map((lm, i) => (
         <div key={lm.match.id} data-flip-id={lm.match.id} className="match-card min-h-0 min-w-0 flex flex-col">
           {n === 1
-            ? <SingleMatchDisplay lm={lm} players={players[lm.match.id] ?? []} showPlayerAnim={showPlayerAnim} />
+            ? (cardStyle === 'cards'
+                ? <CardsMatchDisplay lm={lm} players={players[lm.match.id] ?? []} showPlayerAnim={showPlayerAnim} />
+                : <SingleMatchDisplay lm={lm} players={players[lm.match.id] ?? []} showPlayerAnim={showPlayerAnim} />)
             : <CompactScore lm={lm} index={i} dense={dense} players={players[lm.match.id] ?? []} showPlayerAnim={showPlayerAnim} fx={fx[lm.match.id]} />}
         </div>
       ))}

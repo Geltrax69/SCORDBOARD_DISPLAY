@@ -105,6 +105,7 @@ func main() {
 	r.POST("/api/refresh-token", deviceH.RefreshToken)
 	r.GET("/api/display/layout", deviceH.GetLayout)
 	r.GET("/api/display/background", deviceH.GetBackground)
+	r.GET("/api/display/style", deviceH.GetStyle)
 
 	api := r.Group("/api")
 	{
@@ -147,6 +148,7 @@ func main() {
 				admin.POST("/announce", eventH.Announce)
 				admin.POST("/display/layout", deviceH.SetLayout)
 				admin.POST("/display/background", deviceH.SetBackground)
+				admin.POST("/display/style", deviceH.SetStyle)
 
 				// Sponsor / announcement library — build once, push with one click
 				admin.POST("/display-assets", assetH.Create)

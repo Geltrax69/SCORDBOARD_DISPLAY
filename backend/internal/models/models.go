@@ -118,6 +118,7 @@ const (
 	EventDisplayLayout = "display_layout_change"
 	EventSponsorShow   = "sponsor_show"
 	EventDisplayBackground = "display_background" // persistent full-screen bg image
+	EventDisplayStyle      = "display_style"      // scorecard style: classic | cards
 	EventServeSet      = "serve_set" // referee sets who serves first (toss)
 )
 

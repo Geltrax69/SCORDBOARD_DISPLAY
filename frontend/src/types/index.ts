@@ -86,6 +86,7 @@ export type EventType =
   | 'display_layout_change'
   | 'sponsor_show'
   | 'display_background'
+  | 'display_style'
   | 'connected'
 
 export interface Event {

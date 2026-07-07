@@ -165,4 +165,10 @@ export const getDisplayBackground = () =>
 export const setDisplayBackground = (background_url: string) =>
   api.post('/display/background', { background_url })
 
+export const getDisplayStyle = () =>
+  api.get<{ style: string }>('/display/style').then((r) => (r.data.style === 'cards' ? 'cards' : 'classic'))
+
+export const setDisplayStyle = (style: 'classic' | 'cards') =>
+  api.post('/display/style', { style })
+
 export default api

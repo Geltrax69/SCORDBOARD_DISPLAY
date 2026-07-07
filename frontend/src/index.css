@@ -97,6 +97,17 @@
     border-radius: 8px;
   }
 
+  /* Sponsor ticker marquee (cards display style) */
+  @keyframes marquee {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+  .marquee-track {
+    display: inline-flex;
+    white-space: nowrap;
+    animation: marquee 30s linear infinite;
+  }
+
   /* Score pop */
   @keyframes scorePop {
     0%   { transform: scale(1); }
