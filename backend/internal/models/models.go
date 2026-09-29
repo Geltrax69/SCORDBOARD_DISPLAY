@@ -2,6 +2,9 @@ package models
 
 import (
 	"encoding/json"
+	"fmt"
+	"regexp"
+	"strings"
 	"time"
 )
 
@@ -13,6 +16,8 @@ const (
 	RoleScorer     Role = "scorer"
 	RoleDisplay    Role = "display"
 )
+
+var teamColorPattern = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
 
 type User struct {
 	ID           string    `json:"id"`
@@ -119,6 +124,109 @@ type TeamRequest struct {
 	Color   string        `json:"color"`
 	LogoURL string        `json:"logo_url"`
 	Players []PlayerInput `json:"players"`
+}
+
+const (
+	MaxImportTeams   = 100
+	MaxImportPlayers = 5000
+)
+
+// TeamImportRequest is the verified client preview submitted as one atomic import.
+// NormalizeAndValidate is also called server-side so API clients cannot bypass the
+// spreadsheet checks performed in the browser.
+type TeamImportRequest struct {
+	Teams []TeamImportInput `json:"teams" binding:"required"`
+}
+
+type TeamImportInput struct {
+	Name    string        `json:"name"`
+	Color   string        `json:"color"`
+	Players []PlayerInput `json:"players"`
+}
+
+type TeamImportResult struct {
+	TeamsCreated int `json:"teams_created"`
+	TeamsUpdated int `json:"teams_updated"`
+	PlayersAdded int `json:"players_added"`
+}
+
+func (r *TeamImportRequest) NormalizeAndValidate() error {
+	if len(r.Teams) == 0 {
+		return fmt.Errorf("at least one team is required")
+	}
+	if len(r.Teams) > MaxImportTeams {
+		return fmt.Errorf("too many teams: maximum is %d", MaxImportTeams)
+	}
+
+	totalPlayers := 0
+	teamNames := make(map[string]struct{}, len(r.Teams))
+	for teamIndex := range r.Teams {
+		team := &r.Teams[teamIndex]
+		team.Name = strings.TrimSpace(team.Name)
+		if team.Name == "" {
+			return fmt.Errorf("team %d: name is required", teamIndex+1)
+		}
+		if len([]rune(team.Name)) > 255 {
+			return fmt.Errorf("team %d: name must be 255 characters or fewer", teamIndex+1)
+		}
+		teamKey := strings.ToLower(team.Name)
+		if _, exists := teamNames[teamKey]; exists {
+			return fmt.Errorf("duplicate team: %s", team.Name)
+		}
+		teamNames[teamKey] = struct{}{}
+		if team.Color == "" {
+			team.Color = "#3B82F6"
+		}
+		if !teamColorPattern.MatchString(team.Color) {
+			return fmt.Errorf("team %s: color must be a six-digit hex value", team.Name)
+		}
+		team.Color = strings.ToUpper(team.Color)
+		if len(team.Players) == 0 {
+			return fmt.Errorf("team %s: at least one player is required", team.Name)
+		}
+
+		totalPlayers += len(team.Players)
+		if totalPlayers > MaxImportPlayers {
+			return fmt.Errorf("too many players: maximum is %d", MaxImportPlayers)
+		}
+		playerNames := make(map[string]struct{}, len(team.Players))
+		jerseys := make(map[int]struct{}, len(team.Players))
+		for playerIndex := range team.Players {
+			player := &team.Players[playerIndex]
+			player.Name = strings.TrimSpace(player.Name)
+			if player.Name == "" {
+				return fmt.Errorf("team %s, player %d: full name is required", team.Name, playerIndex+1)
+			}
+			if len([]rune(player.Name)) > 255 {
+				return fmt.Errorf("team %s, player %d: full name must be 255 characters or fewer", team.Name, playerIndex+1)
+			}
+			nameKey := strings.ToLower(player.Name)
+			if _, exists := playerNames[nameKey]; exists {
+				return fmt.Errorf("team %s: duplicate player %s", team.Name, player.Name)
+			}
+			playerNames[nameKey] = struct{}{}
+
+			switch strings.ToLower(strings.TrimSpace(player.Gender)) {
+			case "male":
+				player.Gender = "Male"
+			case "female":
+				player.Gender = "Female"
+			case "other":
+				player.Gender = "Other"
+			default:
+				return fmt.Errorf("team %s, player %s: gender must be Male, Female, or Other", team.Name, player.Name)
+			}
+			if player.JerseyNumber < 1 || player.JerseyNumber > 99 {
+				return fmt.Errorf("team %s, player %s: jersey number must be from 1 to 99", team.Name, player.Name)
+			}
+			if _, exists := jerseys[player.JerseyNumber]; exists {
+				return fmt.Errorf("team %s: duplicate jersey number %d", team.Name, player.JerseyNumber)
+			}
+			jerseys[player.JerseyNumber] = struct{}{}
+			player.Status = "playing"
+		}
+	}
+	return nil
 }
 
 type Event struct {

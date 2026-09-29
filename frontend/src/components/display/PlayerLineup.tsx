@@ -53,6 +53,9 @@ export function PlayerLineup({ match, players, onDone }: Props) {
   const vsRef         = useRef<HTMLDivElement>(null)
   const playersARef   = useRef<HTMLDivElement>(null)
   const playersBRef   = useRef<HTMLDivElement>(null)
+  const onDoneRef     = useRef(onDone)
+
+  useEffect(() => { onDoneRef.current = onDone }, [onDone])
 
   const [maskFrame, setMaskFrame] = useState<number | null>(null)
 
@@ -62,7 +65,7 @@ export function PlayerLineup({ match, players, onDone }: Props) {
   useEffect(() => {
     if (!containerRef.current) return
 
-    const tl = gsap.timeline({ onComplete: onDone })
+    const tl = gsap.timeline({ onComplete: () => onDoneRef.current?.() })
     const maskObj = { frame: 0 }
     setMaskFrame(0)
 

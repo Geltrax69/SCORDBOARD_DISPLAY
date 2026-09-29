@@ -109,7 +109,7 @@ export default function Display() {
   // ── Load initial data ─────────────────────────────────────────────────────
   useEffect(() => {
     const init = async () => {
-      let ids = matchIds
+      let ids = singleMatchId ? [singleMatchId] : []
 
       // If no specific match requested, try to get persisted layout from server
       if (ids.length === 0 && token) {
@@ -151,7 +151,7 @@ export default function Display() {
       setLoading(false)
     }
     init()
-  }, [])
+  }, [singleMatchId, token])
 
   // ── WS message handler ────────────────────────────────────────────────────
   const handleWS = useCallback((msg: WSMessage) => {
@@ -322,7 +322,7 @@ export default function Display() {
 
     const unsub = scoreboardWS.subscribe((msg: WSMessage) => handleWSRef.current(msg))
     return () => { unsub(); scoreboardWS.disconnect() }
-  }, [token, singleMatchId])
+  }, [token, singleMatchId, setWsStatus])
 
   if (loading) {
     return (
@@ -499,30 +499,6 @@ function EmptyDisplay({ label }: { label: string }) {
   )
 }
 
-// Per-slot placeholder used inside the 2-up / 4-grid layouts.
-function WaitingSlot({ label, index = 0 }: { label: string; index?: number }) {
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!ref.current) return
-    const ctx = gsap.context(() => {
-      gsap.fromTo(ref.current, { opacity: 0, y: 26, scale: 0.96 },
-        { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: 'power3.out', delay: index * 0.12 })
-      gsap.to('.ws-icon', { scale: 1.08, opacity: 0.85, duration: 1.6, repeat: -1, yoyo: true, ease: 'sine.inOut' })
-    }, ref)
-    return () => ctx.revert()
-  }, [index])
-
-  return (
-    <div ref={ref} className="relative flex flex-col items-center justify-center gap-4 rounded-3xl border border-dashed border-dark-700 bg-dark-900/40 h-full">
-      <div className="ws-icon h-16 w-16 rounded-full bg-dark-800 border border-dark-700 flex items-center justify-center">
-        <Tv size={26} className="text-dark-500" />
-      </div>
-      <p className="text-dark-400 font-black uppercase tracking-widest text-lg">{label}</p>
-      <p className="text-dark-600 text-sm font-medium">Waiting for match</p>
-    </div>
-  )
-}
-
 // ── 5-second countdown overlay ───────────────────────────────────────────────
 function CountdownOverlay({ match: m, onDone }: { match: Match; onDone: () => void }) {
   const ref        = useRef<HTMLDivElement>(null)
@@ -660,11 +636,9 @@ function PreMatchIntro({ m, players, showPlayerAnim }: { m: Match; players: Play
   const spotLogo = spotlight ? (spotlight.team === 'A' ? m.team_a_logo : m.team_b_logo) : undefined
   const spotStatus = spotlight ? (spotlight.status === 'sub' ? 'SUB' : 'PLAYER') : 'PLAYER'
 
-  const nextIndex = (from: number) => (from + 1) % Math.max(allPlayers.length, 1)
-
   // Stable random particle generation to avoid jumping on re-renders
   const particles = useMemo(() => {
-    return Array.from({ length: 25 }).map((_, i) => ({
+    return Array.from({ length: 25 }).map(() => ({
       size: Math.random() * 4 + 2,
       left: Math.random() * 100,
       delay: Math.random() * 10,
@@ -870,7 +844,7 @@ function PreMatchIntro({ m, players, showPlayerAnim }: { m: Match; players: Play
     if (!playerPhase || allPlayers.length < 2) return
 
     const id = setInterval(() => {
-      const next = nextIndex(spotIdx)
+      const next = (spotIdx + 1) % Math.max(allPlayers.length, 1)
       
       // 1. Subtle, premium slide-out before swapping spotlight
       const tl = gsap.timeline({

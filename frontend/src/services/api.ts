@@ -117,6 +117,12 @@ export const updateTeam = (id: string, data: {
 
 export const deleteTeam = (id: string) => api.delete(`/teams/${id}`)
 
+export const importTeams = (teams: Array<{
+  name: string; color: string; players: PlayerInput[]
+}>) => api.post<{
+  teams_created: number; teams_updated: number; players_added: number
+}>('/teams/import', { teams }).then((r) => r.data)
+
 // Events
 export const listEvents = (matchId: string) =>
   api.get<Event[]>(`/matches/${matchId}/events`).then((r) => r.data)

@@ -39,7 +39,7 @@ interface MatchStore {
   resetTimer: () => void
 }
 
-export const useMatchStore = create<MatchStore>((set, get) => ({
+export const useMatchStore = create<MatchStore>((set) => ({
   tournaments: [],
   courts: [],
   matches: [],

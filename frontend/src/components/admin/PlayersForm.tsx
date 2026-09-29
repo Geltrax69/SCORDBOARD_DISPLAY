@@ -1,12 +1,11 @@
 import { useRef, useState } from 'react'
-import { Plus, X, Upload, UserCircle2, Loader2, ShieldCheck, ArrowLeftRight } from 'lucide-react'
+import { Plus, X, Upload, Loader2, ShieldCheck, ArrowLeftRight } from 'lucide-react'
 import { clsx } from 'clsx'
 import type { PlayerInput } from '@/types'
 
 const API_BASE = import.meta.env.VITE_API_URL ?? '/api'
 
 interface Props {
-  teamName: string
   teamColor: string
   players: PlayerInput[]
   onChange: (players: PlayerInput[]) => void
@@ -183,7 +182,7 @@ function PlayerRow({ player, color, index, token, onUpdate, onRemove }: PlayerRo
   )
 }
 
-export function PlayersForm({ teamName, teamColor, players, onChange, token, maxPlayers = 12 }: Props) {
+export function PlayersForm({ teamColor, players, onChange, token, maxPlayers = 12 }: Props) {
   const effectiveMax = Math.max(maxPlayers, players.length)
   const add = () => {
     if (players.length >= effectiveMax) return

@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { AlertCircle, CheckCircle2, ChevronDown, FileSpreadsheet, Loader2, RefreshCw, UploadCloud, Users } from 'lucide-react'
-import { createTeam, listTeams, updateTeam } from '@/services/api'
+import { importTeams as bulkImportTeams, listTeams } from '@/services/api'
 import { identityKey, parsePlayerImport, teamColor } from '@/utils/playerImport'
 import type { ImportCandidate, PlayerImportResult } from '@/utils/playerImport'
 import type { PlayerInput, Team } from '@/types'
@@ -60,7 +60,7 @@ export function PlayerImport({ onImported }: Props) {
     } : current)
   }
 
-  const importTeams = async () => {
+  const saveImport = async () => {
     if (!result || selectedCount === 0) return
     for (const [district, players] of groups) {
       const selected = players.filter((player) => player.included)
@@ -81,51 +81,26 @@ export function PlayerImport({ onImported }: Props) {
     }
     setSaving(true); setError(''); setSuccess('')
     try {
-      const existingByName = new Map(existingTeams.map((team) => [identityKey(team.name), team]))
       const selectedGroups = groups
         .map(([district, players]) => [district, players.filter((player) => player.included)] as const)
         .filter(([, players]) => players.length > 0)
 
-      let created = 0
-      let updated = 0
-      for (let index = 0; index < selectedGroups.length; index += 1) {
-        const [district, candidates] = selectedGroups[index]
-        setProgress(`Saving ${index + 1} of ${selectedGroups.length}: ${district}`)
-        const imported: PlayerInput[] = candidates.map((player) => ({
-          name: player.name.trim(),
-          gender: player.gender,
-          jersey_number: player.jerseyNumber,
-          status: 'playing',
-          photo_url: '',
-        }))
-        const existing = existingByName.get(identityKey(district))
-        if (existing) {
-          const current: PlayerInput[] = existing.players.map((player) => ({
-            name: player.name,
-            gender: player.gender,
-            jersey_number: player.jersey_number,
-            status: player.status,
-            photo_url: player.photo_url,
-          }))
-          await updateTeam(existing.id, {
-            name: existing.name,
-            color: existing.color,
-            logo_url: existing.logo_url,
-            players: [...current, ...imported],
-          })
-          updated += 1
-        } else {
-          await createTeam({ name: district, color: teamColor(district), players: imported })
-          created += 1
-        }
-      }
+      setProgress(`Saving ${selectedCount} players in one transaction…`)
+      const imported = await bulkImportTeams(selectedGroups.map(([district, candidates]) => ({
+        name: district,
+        color: teamColor(district),
+        players: candidates.map((player): PlayerInput => ({
+          name: player.name.trim(), gender: player.gender, jersey_number: player.jerseyNumber,
+          status: 'playing', photo_url: '',
+        })),
+      })))
 
       const teams = await listTeams()
       onImported?.(teams)
-      setSuccess(`${selectedCount} players imported. ${created} teams created and ${updated} teams updated.`)
+      setSuccess(`${imported.players_added} players imported. ${imported.teams_created} teams created and ${imported.teams_updated} teams updated.`)
       setResult(null)
     } catch (err: any) {
-      setError(err?.response?.data?.error ?? 'The import stopped before all teams could be saved. Review the Teams tab before retrying.')
+      setError(err?.response?.data?.error ?? 'Import failed. No teams or players were saved; review the file and retry.')
     } finally {
       setSaving(false); setProgress('')
     }
@@ -279,7 +254,7 @@ export function PlayerImport({ onImported }: Props) {
       {error && <p className="mt-4 px-4 py-3 rounded-xl bg-danger/10 border border-danger/30 text-sm text-red-300" role="alert">{error}</p>}
       <div className="sticky bottom-3 mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dark-700 bg-dark-925 px-4 py-3 shadow-card">
         <p className="text-xs text-dark-400">{saving ? progress : `${selectedCount} approved players will be added to ${groups.filter(([, players]) => players.some((player) => player.included)).length} teams.`}</p>
-        <button onClick={importTeams} disabled={saving || selectedCount === 0}
+        <button onClick={saveImport} disabled={saving || selectedCount === 0}
           className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-sm font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
           {saving ? <Loader2 size={15} className="animate-spin" /> : <UploadCloud size={15} />}
           {saving ? 'Importing…' : `Import ${selectedCount} players`}

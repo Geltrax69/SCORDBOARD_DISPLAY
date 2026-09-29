@@ -21,7 +21,7 @@ function useScoreAnimation(score: number, ref: React.RefObject<HTMLDivElement | 
           textShadow: '0 0 20px currentColor' })
       prevScore.current = score
     }
-  }, [score])
+  }, [score, ref])
 }
 
 export function ScoreBoard({ match, state, compact = false }: Props) {

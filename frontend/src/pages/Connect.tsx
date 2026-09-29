@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Trophy, Wifi, CheckCircle, AlertCircle, Loader, Plus, Minus,
+import { Wifi, AlertCircle, Loader, Minus,
          Play, Square, Timer, PauseCircle, Clock, RefreshCw, ArrowDownUp } from 'lucide-react'
-import { Button } from '@/components/common/Button'
 import { scoreboardWS } from '@/services/websocket'
 import { SubstitutionModal } from '@/components/admin/SubstitutionModal'
 import { Modal } from '@/components/common/Modal'

@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
-import { Wifi, WifiOff, Monitor, Smartphone, RefreshCw } from 'lucide-react'
+import { WifiOff, Monitor, Smartphone, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/common/Button'
 import type { DeviceInfo } from '@/types'
 
@@ -24,19 +24,19 @@ export function DeviceDashboard({ token }: Props) {
   const [loading, setLoading] = useState(false)
   const [lastRefresh, setLastRefresh] = useState(new Date())
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     setLoading(true)
     const d = await fetchDevices(token)
     setDevices(d)
     setLastRefresh(new Date())
     setLoading(false)
-  }
+  }, [token])
 
   useEffect(() => {
     refresh()
     const t = setInterval(refresh, 10_000) // poll every 10s
     return () => clearInterval(t)
-  }, [])
+  }, [refresh])
 
   return (
     <div className="space-y-4">

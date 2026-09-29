@@ -174,7 +174,7 @@ export function TeamsControl() {
 
           <div className="h-px bg-dark-850" />
 
-          <PlayersForm teamName={form.name || 'Team'} teamColor={form.color}
+          <PlayersForm teamColor={form.color}
             players={players} onChange={setPlayers} token={token} />
 
           {error && <p className="text-xs text-danger" role="alert">{error}</p>}

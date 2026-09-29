@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { clsx } from 'clsx'
 import { useAuthStore } from '@/store/authStore'
@@ -191,12 +191,12 @@ export default function Dashboard() {
   const [copied, setCopied]       = useState(false)
   const [qrMatch, setQrMatch]     = useState<Match | null>(null)
 
-  const fetchServerInfo = () => {
+  const fetchServerInfo = useCallback(() => {
     if (token) {
       fetch(`${API_BASE}/server-info`, { headers: { Authorization: `Bearer ${token}` } })
         .then((r) => r.json()).then(setServerInfo).catch(() => {})
     }
-  }
+  }, [token])
   const [confirmDelete, setConfirmDelete] = useState<Match | null>(null)
   const [actionMatch, setActionMatch]     = useState<string | null>(null)
 
@@ -234,7 +234,7 @@ export default function Dashboard() {
     })
     listTeams().then(setSavedTeams).catch(() => {})
     fetchServerInfo()
-  }, [])
+  }, [fetchServerInfo, setCourts, setMatches, setTournaments])
 
   const isSuperAdmin  = user?.role === 'super_admin'
   const activeMatches = matches.filter((m) => m.status === 'active' || m.status === 'timeout')
@@ -996,13 +996,13 @@ export default function Dashboard() {
             <div className="min-h-[200px]">
               {activeTeam === 'A' && (
                 <PlayersForm
-                  teamName={matchForm.team_a} teamColor={matchForm.team_a_color}
+                  teamColor={matchForm.team_a_color}
                   players={playersA} onChange={setPlayersA} token={token ?? ''}
                 />
               )}
               {activeTeam === 'B' && (
                 <PlayersForm
-                  teamName={matchForm.team_b} teamColor={matchForm.team_b_color}
+                  teamColor={matchForm.team_b_color}
                   players={playersB} onChange={setPlayersB} token={token ?? ''}
                 />
               )}

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { gsap } from 'gsap'
 import { clsx } from 'clsx'
 import { CheckCircle2, XCircle, AlertTriangle, Info, X, Loader2 } from 'lucide-react'
@@ -63,13 +63,13 @@ function ToastItem({ toast }: { toast: Toast }) {
     }
   }, [])
 
-  const dismiss = () => {
+  const dismiss = useCallback(() => {
     if (!ref.current) { remove(toast.id); return }
     gsap.to(ref.current, {
       opacity: 0, y: -16, scale: 0.92, duration: 0.22, ease: 'power2.in',
       onComplete: () => remove(toast.id),
     })
-  }
+  }, [remove, toast.id])
 
   return (
     <div
@@ -113,11 +113,12 @@ function ProgressBar({ duration, color, onDone }: { duration: number; color: str
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!ref.current) return
-    gsap.fromTo(ref.current,
+    const tween = gsap.fromTo(ref.current,
       { scaleX: 1 },
       { scaleX: 0, duration: duration / 1000, ease: 'none', onComplete: onDone }
     )
-  }, [])
+    return () => { tween.kill() }
+  }, [duration, onDone])
   return (
     <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-dark-800 rounded-b-2xl overflow-hidden">
       <div ref={ref} className={clsx('h-full origin-left', color)} style={{ opacity: 0.5 }} />

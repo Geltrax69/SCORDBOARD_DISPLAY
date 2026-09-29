@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { scoreboardWS } from '@/services/websocket'
 import { useAuthStore } from '@/store/authStore'
 import { useWSStore } from '@/store/wsStore'
@@ -30,7 +30,7 @@ export function useWebSocket(matchId?: string) {
       unsub()
       scoreboardWS.disconnect()
     }
-  }, [token, matchId])
+  }, [token, matchId, setStatus, applyWSUpdate, setActiveTimeout, addEvent])
 }
 
 function handleMessage(

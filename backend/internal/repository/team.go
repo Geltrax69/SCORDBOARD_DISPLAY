@@ -2,9 +2,14 @@ package repository
 
 import (
 	"database/sql"
+	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/scoreboard/backend/internal/models"
 )
+
+var ErrTeamImportConflict = errors.New("team import conflict")
 
 type TeamRepo struct {
 	db *sql.DB
@@ -120,6 +125,101 @@ func (r *TeamRepo) Update(t *models.Team, players []models.PlayerInput) error {
 func (r *TeamRepo) Delete(id string) error {
 	_, err := r.db.Exec(`DELETE FROM teams WHERE id=$1`, id)
 	return err
+}
+
+// Import atomically appends verified players to district teams. A transaction-
+// scoped advisory lock serializes imports so two simultaneous uploads cannot
+// allocate the same player name or jersey number between their checks/inserts.
+func (r *TeamRepo) Import(req models.TeamImportRequest, createdBy string) (*models.TeamImportResult, error) {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtext('scorecast_team_import'))`); err != nil {
+		return nil, err
+	}
+
+	result := &models.TeamImportResult{}
+	for _, input := range req.Teams {
+		var teamID string
+		err := tx.QueryRow(
+			`SELECT id::text FROM teams
+			 WHERE LOWER(TRIM(name)) = LOWER(TRIM($1))
+			 LIMIT 1 FOR UPDATE`, input.Name,
+		).Scan(&teamID)
+		switch {
+		case err == sql.ErrNoRows:
+			err = tx.QueryRow(
+				`INSERT INTO teams (name, color, logo_url, created_by)
+				 VALUES ($1,$2,'',NULLIF($3,'')::uuid) RETURNING id::text`,
+				input.Name, input.Color, createdBy,
+			).Scan(&teamID)
+			if err != nil {
+				return nil, err
+			}
+			result.TeamsCreated++
+		case err != nil:
+			return nil, err
+		default:
+			result.TeamsUpdated++
+		}
+
+		names := map[string]struct{}{}
+		jerseys := map[int]struct{}{}
+		maxSortOrder := -1
+		rows, err := tx.Query(
+			`SELECT LOWER(TRIM(name)), jersey_number, sort_order
+			 FROM team_players WHERE team_id=$1 FOR UPDATE`, teamID)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var name string
+			var jersey, sortOrder int
+			if err := rows.Scan(&name, &jersey, &sortOrder); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			names[name] = struct{}{}
+			if jersey > 0 {
+				jerseys[jersey] = struct{}{}
+			}
+			if sortOrder > maxSortOrder {
+				maxSortOrder = sortOrder
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+
+		for playerIndex, player := range input.Players {
+			if _, exists := names[strings.ToLower(strings.TrimSpace(player.Name))]; exists {
+				return nil, fmt.Errorf("%w: %s already exists in %s", ErrTeamImportConflict, player.Name, input.Name)
+			}
+			if _, exists := jerseys[player.JerseyNumber]; exists {
+				return nil, fmt.Errorf("%w: jersey number %d already exists in %s", ErrTeamImportConflict, player.JerseyNumber, input.Name)
+			}
+			if _, err := tx.Exec(
+				`INSERT INTO team_players (team_id, name, gender, jersey_number, status, photo_url, sort_order)
+				 VALUES ($1,$2,$3,$4,'playing','',$5)`,
+				teamID, player.Name, player.Gender, player.JerseyNumber, maxSortOrder+playerIndex+1,
+			); err != nil {
+				return nil, err
+			}
+			names[strings.ToLower(strings.TrimSpace(player.Name))] = struct{}{}
+			jerseys[player.JerseyNumber] = struct{}{}
+			result.PlayersAdded++
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // echoPlayers mirrors what was just written, so create/update responses aren't empty.

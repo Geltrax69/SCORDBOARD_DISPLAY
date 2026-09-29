@@ -153,6 +153,7 @@ func main() {
 
 				// Saved team rosters — pick a team when creating a match
 				admin.POST("/teams", teamH.Create)
+				admin.POST("/teams/import", teamH.Import)
 				admin.PUT("/teams/:id", teamH.Update)
 				admin.DELETE("/teams/:id", teamH.Delete)
 

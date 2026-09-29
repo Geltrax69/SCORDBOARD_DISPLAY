@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -82,6 +83,28 @@ func (h *TeamHandler) Delete(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"deleted": true})
+}
+
+func (h *TeamHandler) Import(c *gin.Context) {
+	var req models.TeamImportRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid import payload: " + err.Error()})
+		return
+	}
+	if err := req.NormalizeAndValidate(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	result, err := h.repo.Import(req, auth.GetUserID(c))
+	if err != nil {
+		if errors.Is(err, repository.ErrTeamImportConflict) {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "player import failed; no changes were saved"})
+		return
+	}
+	c.JSON(http.StatusCreated, result)
 }
 
 func bindTeam(c *gin.Context) (*models.TeamRequest, bool) {

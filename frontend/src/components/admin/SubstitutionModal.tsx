@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Modal } from '@/components/common/Modal'
 import { Button } from '@/components/common/Button'
-import { createSubstitution, getMatchPlayers } from '@/services/api'
 import { ArrowDownUp } from 'lucide-react'
 import type { Player } from '@/types'
 import { useAuthStore } from '@/store/authStore'

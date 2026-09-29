@@ -13,10 +13,13 @@ export function MatchIntroOverlay({ match, onDone }: Props) {
   const teamARef   = useRef<HTMLDivElement>(null)
   const teamBRef   = useRef<HTMLDivElement>(null)
   const vsRef      = useRef<HTMLDivElement>(null)
+  const onDoneRef  = useRef(onDone)
+
+  useEffect(() => { onDoneRef.current = onDone }, [onDone])
 
   useEffect(() => {
     if (!overlayRef.current) return
-    const tl = gsap.timeline({ onComplete: onDone })
+    const tl = gsap.timeline({ onComplete: () => onDoneRef.current?.() })
 
     tl.set(overlayRef.current, { opacity: 1 })
       .fromTo(teamARef.current,
@@ -35,6 +38,8 @@ export function MatchIntroOverlay({ match, onDone }: Props) {
       )
       .to({}, { duration: 2.5 })
       .to(overlayRef.current, { opacity: 0, duration: 0.6 })
+
+    return () => { tl.kill() }
   }, [])
 
   return (

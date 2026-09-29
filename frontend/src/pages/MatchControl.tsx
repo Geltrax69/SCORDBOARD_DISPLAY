@@ -5,7 +5,7 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 import { useMatchStore } from '@/store/matchStore'
 import { useAuthStore } from '@/store/authStore'
 import { useToastStore } from '@/store/toastStore'
-import { getMatch, listEvents, startMatch, endMatch, startTimer, pauseTimer, endTimeout, updateMatchStatus, deleteMatch, createEvent, setFirstServer, startRound } from '@/services/api'
+import { getMatch, listEvents, startMatch, startTimer, pauseTimer, endTimeout, updateMatchStatus, deleteMatch, createEvent, setFirstServer, startRound } from '@/services/api'
 import { TimeoutModal } from '@/components/admin/TimeoutModal'
 import { SubstitutionModal } from '@/components/admin/SubstitutionModal'
 import { TakrawBall } from '@/components/common/TakrawBall'
@@ -48,7 +48,7 @@ export default function MatchControl() {
       setCurrentMatch(match); setCurrentState(state); setEvents(evts); setLoading(false)
     })
     return () => { setCurrentMatch(null); setCurrentState(null); setEvents([]) }
-  }, [id])
+  }, [id, setCurrentMatch, setCurrentState, setEvents])
 
   // Auto-end a timeout once its duration elapses → match clock resumes on its own.
   useEffect(() => {
