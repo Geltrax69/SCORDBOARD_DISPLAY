@@ -11,6 +11,7 @@ interface Props {
   onChange: (players: PlayerInput[]) => void
   token: string
   maxPlayers?: number
+  canAdd?: boolean
 }
 
 interface PlayerRowProps {
@@ -83,10 +84,12 @@ function PlayerRow({ player, color, index, token, onUpdate, onRemove }: PlayerRo
   }
 
   const isPlaying = player.status !== 'sub'
+  // Registered players (from the spreadsheet import) keep their name and gender from registration.
+  const registered = !!player.player_code
 
   return (
     <div
-      className="relative flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5 rounded-xl border transition-all group"
+      className={clsx('relative flex items-center gap-x-2.5 gap-y-2 px-2.5 py-2 rounded-xl border transition-all group', !registered && 'flex-wrap')}
       style={{ backgroundColor: `${color}06`, borderColor: `${color}20` }}
     >
       {/* Photo avatar — click to upload */}
@@ -94,7 +97,8 @@ function PlayerRow({ player, color, index, token, onUpdate, onRemove }: PlayerRo
         type="button"
         onClick={() => fileRef.current?.click()}
         title="Click to upload photo"
-        className="relative h-10 w-10 flex-shrink-0 rounded-xl overflow-hidden border-2 flex items-center justify-center transition-all hover:scale-105"
+        aria-label={`Upload photo for ${player.name || `player ${index + 1}`}`}
+        className="relative h-9 w-9 flex-shrink-0 rounded-xl overflow-hidden border-2 flex items-center justify-center transition-all hover:scale-105"
         style={{ borderColor: `${color}50`, backgroundColor: `${color}18` }}
       >
         {player.photo_url ? (
@@ -114,12 +118,21 @@ function PlayerRow({ player, color, index, token, onUpdate, onRemove }: PlayerRo
         onChange={(e) => onUpdate('jersey_number', parseInt(e.target.value) || 0)}
         placeholder="#"
         min={0} max={99}
-        className="w-16 text-center px-2 py-1.5 bg-dark-850 border border-dark-700 rounded-lg text-base font-black
+        aria-label={`Jersey number for ${player.name || `player ${index + 1}`}`}
+        className="w-12 text-center px-1 py-1.5 bg-dark-850 border border-dark-700 rounded-lg text-base font-black
                    text-dark-100 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30
                    tabular-nums flex-shrink-0"
       />
 
-      {/* Gender is retained from registration imports and can be corrected here. */}
+      {registered ? (
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-dark-100 truncate" title={player.name}>{player.name}</p>
+          <p className="text-xs text-dark-500 truncate">
+            {[player.gender, player.age ? `${player.age} yrs` : ''].filter(Boolean).join(' · ')}
+          </p>
+        </div>
+      ) : (<>
+      {/* Gender for hand-entered players; registered players keep their registration gender. */}
       <select
         value={player.gender ?? ''}
         onChange={(e) => onUpdate('gender', e.target.value)}
@@ -143,6 +156,7 @@ function PlayerRow({ player, color, index, token, onUpdate, onRemove }: PlayerRo
                    focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30
                    placeholder-dark-600"
       />
+      </>)}
 
       {/* Status toggle */}
       <button
@@ -150,7 +164,7 @@ function PlayerRow({ player, color, index, token, onUpdate, onRemove }: PlayerRo
         onClick={() => onUpdate('status', isPlaying ? 'sub' : 'playing')}
         title={isPlaying ? 'Click to mark as substitute' : 'Click to mark as playing'}
         className={clsx(
-          'flex-shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all',
+          'flex-shrink-0 flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold border transition-all',
           isPlaying
             ? 'bg-live/10 border-live/30 text-live'
             : 'bg-dark-800 border-dark-700 text-dark-500 hover:text-dark-300',
@@ -166,8 +180,8 @@ function PlayerRow({ player, color, index, token, onUpdate, onRemove }: PlayerRo
         onClick={onRemove}
         type="button"
         aria-label={`Remove ${player.name || `player ${index + 1}`}`}
-        className="flex-shrink-0 ml-auto sm:ml-0 p-1.5 rounded-lg text-dark-500 hover:text-danger hover:bg-danger/10 transition-all
-                   sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+        className={clsx('flex-shrink-0 p-1.5 rounded-lg text-dark-500 hover:text-danger hover:bg-danger/10 transition-all',
+          !registered && 'ml-auto sm:ml-0 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100')}
       >
         <X size={14} />
       </button>
@@ -182,7 +196,7 @@ function PlayerRow({ player, color, index, token, onUpdate, onRemove }: PlayerRo
   )
 }
 
-export function PlayersForm({ teamColor, players, onChange, token, maxPlayers = 12 }: Props) {
+export function PlayersForm({ teamColor, players, onChange, token, maxPlayers = 12, canAdd = true }: Props) {
   const effectiveMax = Math.max(maxPlayers, players.length)
   const add = () => {
     if (players.length >= effectiveMax) return
@@ -236,7 +250,7 @@ export function PlayersForm({ teamColor, players, onChange, token, maxPlayers = 
       </div>
 
       {/* Add player */}
-      {players.length < effectiveMax && (
+      {canAdd && players.length < effectiveMax && (
         <button
           type="button"
           onClick={add}

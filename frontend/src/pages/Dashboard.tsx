@@ -1001,7 +1001,7 @@ export default function Dashboard() {
                       ? <p className="h-72 grid place-items-center text-center text-sm text-dark-500 px-6 rounded-xl border border-dashed border-dark-750">
                           Select players on the left. Set jersey numbers, photos and substitutes here.
                         </p>
-                      : editor}
+                      : <PlayersForm key={activeTeam} teamColor={color} players={squad} onChange={setSquad} token={token ?? ''} canAdd={false} />}
                   </section>
                 </div>
               )

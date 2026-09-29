@@ -30,7 +30,7 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: M
 
   if (!open) return null
 
-  const widths = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg', xl: 'max-w-xl', '3xl': 'max-w-3xl' }
+  const widths = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg', xl: 'max-w-xl', '3xl': 'max-w-4xl' }
 
   return createPortal(
     <div
