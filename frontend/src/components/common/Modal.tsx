@@ -10,7 +10,7 @@ interface ModalProps {
   children: React.ReactNode
   /** Pinned below the scroll area — use for actions that must stay reachable. */
   footer?: React.ReactNode
-  size?: 'sm' | 'md' | 'lg' | 'xl'
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '3xl'
 }
 
 export function Modal({ open, onClose, title, children, footer, size = 'md' }: ModalProps) {
@@ -30,7 +30,7 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: M
 
   if (!open) return null
 
-  const widths = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg', xl: 'max-w-xl' }
+  const widths = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg', xl: 'max-w-xl', '3xl': 'max-w-3xl' }
 
   return createPortal(
     <div

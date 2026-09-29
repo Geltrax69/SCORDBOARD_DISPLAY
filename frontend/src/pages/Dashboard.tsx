@@ -16,6 +16,7 @@ import { TeamsControl } from '@/components/admin/TeamsControl'
 import { PlayerImport } from '@/components/admin/PlayerImport'
 import { MatchQRModal } from '@/components/admin/MatchQRModal'
 import { PlayersForm } from '@/components/admin/PlayersForm'
+import { RosterPicker } from '@/components/admin/RosterPicker'
 import {
   Trophy, MapPin, Zap, Plus, ExternalLink,
   Wifi, WifiOff, Copy, Check, ChevronRight,
@@ -362,9 +363,8 @@ export default function Dashboard() {
       [`team_${side.toLowerCase()}_color`]: t.color,
       [`team_${side.toLowerCase()}_logo`]: t.logo_url,
     }))
-    setPlayers(t.players.map((p) => ({
-      name: p.name, gender: p.gender, jersey_number: p.jersey_number, status: p.status, photo_url: p.photo_url,
-    })))
+    // The squad is picked from the roster in step 3; a registered district can have 70 players.
+    setPlayers([])
   }
 
   // Refresh rosters on open — a team added in the Teams tab must appear in the picker.
@@ -720,7 +720,7 @@ export default function Dashboard() {
 
       {/* Match modal - 3 steps */}
       <Modal open={matchModal} onClose={() => { setMatchModal(false); resetMatchForm() }}
-        title={`New Match · Step ${matchStep} of 3`} size="xl"
+        title={`New Match · Step ${matchStep} of 3`} size={matchStep === 3 ? '3xl' : 'xl'}
         footer={
           matchStep === 1 ? (
             <div className="flex gap-3">
@@ -810,7 +810,6 @@ export default function Dashboard() {
                 {(['A', 'B'] as const).map((side) => {
                   const nameKey = side === 'A' ? 'team_a' : 'team_b'
                   const name    = matchForm[nameKey]
-                  const roster  = side === 'A' ? playersA : playersB
                   const picked  = savedTeams.find((t) => t.name === name)
                   return (
                     <div key={side}>
@@ -826,7 +825,7 @@ export default function Dashboard() {
                       <input value={name} onChange={(e) => setMatchForm(f => ({ ...f, [nameKey]: e.target.value }))}
                         className={inputCls} placeholder={side === 'A' ? 'Team Alpha' : 'Team Bravo'} />
                       {picked && (
-                        <p className="text-xs text-brand-400 mt-1.5">{roster.length} player{roster.length === 1 ? '' : 's'} loaded — edit in step 3</p>
+                        <p className="text-xs text-brand-400 mt-1.5">{picked.players.length} registered player{picked.players.length === 1 ? '' : 's'} · choose the squad in step 3</p>
                       )}
                     </div>
                   )
@@ -958,62 +957,55 @@ export default function Dashboard() {
         {matchStep === 3 && (
           <div className="space-y-4">
             {/* Team tabs */}
-            <div className="flex gap-1 p-1 rounded-xl bg-dark-900 border border-dark-850">
+            <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-dark-900 border border-dark-850" role="tablist">
               {(['A', 'B'] as const).map((team) => {
                 const name  = team === 'A' ? matchForm.team_a : matchForm.team_b
                 const color = team === 'A' ? matchForm.team_a_color : matchForm.team_b_color
                 const count = team === 'A' ? playersA.length : playersB.length
                 const active = activeTeam === team
                 return (
-                  <button
-                    key={team}
-                    onClick={() => setActiveTeam(team)}
+                  <button key={team} role="tab" aria-selected={active} onClick={() => setActiveTeam(team)} title={name}
                     className={clsx(
-                      'flex-1 flex items-center justify-center gap-2.5 py-2.5 px-4 rounded-lg text-sm font-bold transition-all',
-                      active ? 'bg-dark-800 shadow-sm' : 'text-dark-600 hover:text-dark-300',
-                    )}
-                    style={active ? { color } : undefined}
-                  >
-                    <span
-                      className="h-2.5 w-2.5 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: color, boxShadow: active ? `0 0 8px ${color}` : 'none' }}
-                    />
-                    {name}
-                    {count > 0 && (
-                      <span
-                        className="text-xs px-1.5 py-0.5 rounded-full font-semibold"
-                        style={{ backgroundColor: `${color}20`, color }}
-                      >
-                        {count}
-                      </span>
-                    )}
+                      'min-w-0 flex items-center gap-2.5 py-2.5 px-3 rounded-lg text-left transition-colors',
+                      active ? 'bg-dark-800' : 'text-dark-500 hover:text-dark-200 hover:bg-dark-850',
+                    )}>
+                    <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-xs font-semibold text-dark-500">Team {team}</span>
+                      <span className={clsx('block text-sm font-bold leading-snug line-clamp-2 break-words', active && 'text-dark-100')}>{name}</span>
+                    </span>
+                    <span className="text-xs font-bold tabular-nums px-2 py-0.5 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: `${color}20`, color }}>{count}</span>
                   </button>
                 )
               })}
             </div>
 
-            {/* Active team form */}
-            <div className="min-h-[200px]">
-              {activeTeam === 'A' && (
-                <PlayersForm
-                  teamColor={matchForm.team_a_color}
-                  players={playersA} onChange={setPlayersA} token={token ?? ''}
-                />
-              )}
-              {activeTeam === 'B' && (
-                <PlayersForm
-                  teamColor={matchForm.team_b_color}
-                  players={playersB} onChange={setPlayersB} token={token ?? ''}
-                />
-              )}
-            </div>
-
-            {/* Summary row */}
-            <div className="flex items-center justify-between text-xs text-dark-600 px-1">
-              <span style={{ color: matchForm.team_a_color }}>{matchForm.team_a}: {playersA.length} players</span>
-              <span style={{ color: matchForm.team_b_color }}>{matchForm.team_b}: {playersB.length} players</span>
-            </div>
-
+            {(() => {
+              const isA    = activeTeam === 'A'
+              const color  = isA ? matchForm.team_a_color : matchForm.team_b_color
+              const squad  = isA ? playersA : playersB
+              const setSquad = isA ? setPlayersA : setPlayersB
+              const roster = savedTeams.find((t) => t.name === (isA ? matchForm.team_a : matchForm.team_b))?.players
+              const editor = <PlayersForm key={activeTeam} teamColor={color} players={squad} onChange={setSquad} token={token ?? ''} />
+              if (!roster?.length) return <div className="min-h-[200px]">{editor}</div>
+              return (
+                <div className="grid gap-5 md:grid-cols-2 md:divide-x md:divide-dark-850">
+                  <section aria-label="Registered players" className="min-w-0">
+                    <h3 className="text-sm font-bold text-dark-100 mb-3">Registered players</h3>
+                    <RosterPicker key={activeTeam} roster={roster} selected={squad} onChange={setSquad} color={color} max={12} />
+                  </section>
+                  <section aria-label="Match squad" className="min-w-0 md:pl-5">
+                    <h3 className="text-sm font-bold text-dark-100 mb-3">Match squad</h3>
+                    {squad.length === 0
+                      ? <p className="h-72 grid place-items-center text-center text-sm text-dark-500 px-6 rounded-xl border border-dashed border-dark-750">
+                          Select players on the left. Set jersey numbers, photos and substitutes here.
+                        </p>
+                      : editor}
+                  </section>
+                </div>
+              )
+            })()}
           </div>
         )}
       </Modal>
