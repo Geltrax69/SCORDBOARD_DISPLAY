@@ -91,7 +91,7 @@ export function PlayerImport({ onImported }: Props) {
         color: teamColor(district),
         players: candidates.map((player): PlayerInput => ({
           name: player.name.trim(), gender: player.gender, jersey_number: player.jerseyNumber,
-          status: 'playing', photo_url: '',
+          status: 'playing', photo_url: '', ...player.profile,
         })),
       })))
 

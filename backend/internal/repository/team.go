@@ -48,7 +48,7 @@ func (r *TeamRepo) List() ([]models.Team, error) {
 	}
 
 	prows, err := r.db.Query(
-		`SELECT id, team_id, name, gender, jersey_number, status, photo_url
+		`SELECT id, team_id, name, gender, jersey_number, status, photo_url, ` + profileCols + `
 		 FROM team_players ORDER BY team_id, sort_order, created_at`)
 	if err != nil {
 		return nil, err
@@ -56,7 +56,7 @@ func (r *TeamRepo) List() ([]models.Team, error) {
 	defer prows.Close()
 	for prows.Next() {
 		var p models.TeamPlayer
-		if err := prows.Scan(&p.ID, &p.TeamID, &p.Name, &p.Gender, &p.JerseyNumber, &p.Status, &p.PhotoURL); err != nil {
+		if err := prows.Scan(append([]any{&p.ID, &p.TeamID, &p.Name, &p.Gender, &p.JerseyNumber, &p.Status, &p.PhotoURL}, profileDest(&p.PlayerProfile)...)...); err != nil {
 			return nil, err
 		}
 		if i, ok := byID[p.TeamID]; ok {
@@ -204,9 +204,9 @@ func (r *TeamRepo) Import(req models.TeamImportRequest, createdBy string) (*mode
 				return nil, fmt.Errorf("%w: jersey number %d already exists in %s", ErrTeamImportConflict, player.JerseyNumber, input.Name)
 			}
 			if _, err := tx.Exec(
-				`INSERT INTO team_players (team_id, name, gender, jersey_number, status, photo_url, sort_order)
-				 VALUES ($1,$2,$3,$4,'playing','',$5)`,
-				teamID, player.Name, player.Gender, player.JerseyNumber, maxSortOrder+playerIndex+1,
+				`INSERT INTO team_players (team_id, name, gender, jersey_number, status, photo_url, sort_order, `+profileCols+`)
+				 VALUES ($1,$2,$3,$4,'playing','',$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+				append([]any{teamID, player.Name, player.Gender, player.JerseyNumber, maxSortOrder + playerIndex + 1}, profileArgs(player.PlayerProfile)...)...,
 			); err != nil {
 				return nil, err
 			}
@@ -235,7 +235,7 @@ func echoPlayers(teamID string, players []models.PlayerInput) []models.TeamPlaye
 		}
 		out = append(out, models.TeamPlayer{
 			TeamID: teamID, Name: p.Name, Gender: p.Gender, JerseyNumber: p.JerseyNumber,
-			Status: status, PhotoURL: p.PhotoURL,
+			Status: status, PhotoURL: p.PhotoURL, PlayerProfile: p.PlayerProfile,
 		})
 	}
 	return out
@@ -251,12 +251,22 @@ func insertTeamPlayers(tx *sql.Tx, teamID string, players []models.PlayerInput) 
 			status = "playing"
 		}
 		_, err := tx.Exec(
-			`INSERT INTO team_players (team_id, name, gender, jersey_number, status, photo_url, sort_order)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-			teamID, p.Name, p.Gender, p.JerseyNumber, status, p.PhotoURL, i)
+			`INSERT INTO team_players (team_id, name, gender, jersey_number, status, photo_url, sort_order, `+profileCols+`)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+			append([]any{teamID, p.Name, p.Gender, p.JerseyNumber, status, p.PhotoURL, i}, profileArgs(p.PlayerProfile)...)...)
 		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+const profileCols = `player_code, category, date_of_birth, age, district_games, state_games, national_games, international_games`
+
+func profileArgs(p models.PlayerProfile) []any {
+	return []any{p.PlayerCode, p.Category, p.DateOfBirth, p.Age, p.DistrictGames, p.StateGames, p.NationalGames, p.InternationalGames}
+}
+
+func profileDest(p *models.PlayerProfile) []any {
+	return []any{&p.PlayerCode, &p.Category, &p.DateOfBirth, &p.Age, &p.DistrictGames, &p.StateGames, &p.NationalGames, &p.InternationalGames}
 }

@@ -73,4 +73,14 @@ describe('teamColor', () => {
     expect(teamColor('District A')).toBe(teamColor('District A'))
     expect(teamColor('District A')).toMatch(/^#[0-9A-F]{6}$/)
   })
+
+  it('carries registration profile columns through to candidates', async () => {
+    const csv = 'Player ID,Full Name,Gender,Category,District,Date of Birth,Age,Status,District Games,State Games,National Games,International Games\n' +
+      'HSTAP7277,Daksh,Male,General,Sonipat,2009-01-31,17,approved,3,2,1,'
+    const [player] = (await parsePlayerImport(csvFile(csv), [])).candidates
+    expect(player.profile).toEqual({
+      player_code: 'HSTAP7277', category: 'General', date_of_birth: '2009-01-31', age: 17,
+      district_games: 3, state_games: 2, national_games: 1, international_games: 0,
+    })
+  })
 })

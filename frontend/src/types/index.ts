@@ -186,7 +186,19 @@ export interface WSMessage {
   }
 }
 
-export interface PlayerInput {
+/** Registration data imported from the player spreadsheet. */
+export interface PlayerProfile {
+  player_code?: string
+  category?: string
+  date_of_birth?: string
+  age?: number
+  district_games?: number
+  state_games?: number
+  national_games?: number
+  international_games?: number
+}
+
+export interface PlayerInput extends PlayerProfile {
   name: string
   gender?: string
   jersey_number: number
@@ -206,7 +218,7 @@ export interface Player {
   created_at: string
 }
 
-export interface TeamPlayer {
+export interface TeamPlayer extends PlayerProfile {
   id: string
   team_id: string
   name: string

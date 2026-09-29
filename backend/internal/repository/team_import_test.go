@@ -28,10 +28,15 @@ func TestTeamRepoImportCreatesAtomically(t *testing.T) {
 	mock.ExpectQuery("SELECT id::text FROM teams").WithArgs("District One").WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	mock.ExpectQuery("INSERT INTO teams").WithArgs("District One", "#6366F1", "owner-id").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("team-id"))
 	mock.ExpectQuery("SELECT LOWER\\(TRIM\\(name\\)\\), jersey_number, sort_order").WithArgs("team-id").WillReturnRows(sqlmock.NewRows([]string{"name", "jersey_number", "sort_order"}))
-	mock.ExpectExec("INSERT INTO team_players").WithArgs("team-id", "Alice", "Female", 7, 0).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO team_players").WithArgs("team-id", "Alice", "Female", 7, 0, "HSTAP1", "General", "2008-12-08", 17, 3, 2, 1, 0).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
-	result, err := NewTeamRepo(db).Import(importRequest("Alice", 7), "owner-id")
+	req := importRequest("Alice", 7)
+	req.Teams[0].Players[0].PlayerProfile = models.PlayerProfile{
+		PlayerCode: "HSTAP1", Category: "General", DateOfBirth: "2008-12-08", Age: 17,
+		DistrictGames: 3, StateGames: 2, NationalGames: 1,
+	}
+	result, err := NewTeamRepo(db).Import(req, "owner-id")
 	if err != nil {
 		t.Fatalf("import failed: %v", err)
 	}
@@ -104,7 +109,7 @@ func TestTeamRepoImportRollsBackEarlierTeamsWhenLaterTeamConflicts(t *testing.T)
 	mock.ExpectQuery("SELECT id::text FROM teams").WithArgs("District One").WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	mock.ExpectQuery("INSERT INTO teams").WithArgs("District One", "#6366F1", "owner-id").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("team-one"))
 	mock.ExpectQuery("SELECT LOWER\\(TRIM\\(name\\)\\), jersey_number, sort_order").WithArgs("team-one").WillReturnRows(sqlmock.NewRows([]string{"name", "jersey_number", "sort_order"}))
-	mock.ExpectExec("INSERT INTO team_players").WithArgs("team-one", "Alice", "Female", 7, 0).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO team_players").WithArgs("team-one", "Alice", "Female", 7, 0, "", "", "", 0, 0, 0, 0, 0).WillReturnResult(sqlmock.NewResult(1, 1))
 	// A conflict in the second district must roll the entire transaction back.
 	mock.ExpectQuery("SELECT id::text FROM teams").WithArgs("District Two").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("team-two"))
 	mock.ExpectQuery("SELECT LOWER\\(TRIM\\(name\\)\\), jersey_number, sort_order").WithArgs("team-two").WillReturnRows(

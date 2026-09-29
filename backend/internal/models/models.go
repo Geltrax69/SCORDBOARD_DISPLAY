@@ -95,6 +95,19 @@ type PlayerInput struct {
 	JerseyNumber int    `json:"jersey_number"`
 	Status       string `json:"status"`
 	PhotoURL     string `json:"photo_url"`
+	PlayerProfile
+}
+
+// PlayerProfile is the registration data imported from the player spreadsheet.
+type PlayerProfile struct {
+	PlayerCode         string `json:"player_code"`
+	Category           string `json:"category"`
+	DateOfBirth        string `json:"date_of_birth"`
+	Age                int    `json:"age"`
+	DistrictGames      int    `json:"district_games"`
+	StateGames         int    `json:"state_games"`
+	NationalGames      int    `json:"national_games"`
+	InternationalGames int    `json:"international_games"`
 }
 
 // Team is a saved roster template, reused across matches.
@@ -117,6 +130,7 @@ type TeamPlayer struct {
 	JerseyNumber int    `json:"jersey_number"`
 	Status       string `json:"status"`
 	PhotoURL     string `json:"photo_url"`
+	PlayerProfile
 }
 
 type TeamRequest struct {

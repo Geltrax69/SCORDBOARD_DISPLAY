@@ -1,4 +1,4 @@
-import type { Team } from '@/types'
+import type { PlayerProfile, Team } from '@/types'
 
 export type ImportSeverity = 'error' | 'warning'
 
@@ -17,6 +17,7 @@ export interface ImportCandidate {
   jerseyNumber: number
   included: boolean
   duplicate: 'file' | 'existing' | null
+  profile: PlayerProfile
 }
 
 export interface PlayerImportResult {
@@ -112,6 +113,13 @@ export async function parsePlayerImport(file: File, existingTeams: Team[]): Prom
   const genderColumn = findColumn(headers, ['Gender', 'Sex'])
   const districtColumn = findColumn(headers, ['District', 'District Name', 'Team Name'])
   const statusColumn = findColumn(headers, ['Status', 'Approval Status', 'Registration Status'])
+  // Optional registration columns; a missing column (-1) just reads as empty.
+  const profileColumns = {
+    code: findColumn(headers, ['Player ID']), category: findColumn(headers, ['Category']),
+    dob: findColumn(headers, ['Date of Birth', 'DOB']), age: findColumn(headers, ['Age']),
+    district: findColumn(headers, ['District Games']), state: findColumn(headers, ['State Games']),
+    national: findColumn(headers, ['National Games']), international: findColumn(headers, ['International Games']),
+  }
   const missing = [
     [nameColumn, 'Full Name'], [genderColumn, 'Gender'],
     [districtColumn, 'District'], [statusColumn, 'Status'],
@@ -141,10 +149,18 @@ export async function parsePlayerImport(file: File, existingTeams: Team[]): Prom
     const genderRaw = normalize(source[genderColumn])
     const gender = normalizeGender(genderRaw)
     const district = normalize(source[districtColumn])
+    const text = (column: number) => normalize(source[column]).slice(0, 50)
+    const count = (column: number) => Math.max(0, Math.trunc(Number(normalize(source[column])) || 0))
+    const profile: PlayerProfile = {
+      player_code: text(profileColumns.code), category: text(profileColumns.category),
+      date_of_birth: text(profileColumns.dob).slice(0, 20), age: count(profileColumns.age),
+      district_games: count(profileColumns.district), state_games: count(profileColumns.state),
+      national_games: count(profileColumns.national), international_games: count(profileColumns.international),
+    }
     const missingFields = [!name && 'Full Name', !gender && 'Gender', !district && 'District'].filter(Boolean)
     if (missingFields.length) {
       issues.push({ row, severity: 'error', message: `Missing ${missingFields.join(', ')}.` })
-      candidates.push({ id: `row-${row}`, row, name, gender, district, jerseyNumber: 0, included: false, duplicate: null })
+      candidates.push({ id: `row-${row}`, row, name, gender, district, jerseyNumber: 0, included: false, duplicate: null, profile })
       return
     }
 
@@ -185,6 +201,7 @@ export async function parsePlayerImport(file: File, existingTeams: Team[]): Prom
       jerseyNumber,
       included: !duplicate && jerseyNumber > 0,
       duplicate,
+      profile,
     })
   })
 

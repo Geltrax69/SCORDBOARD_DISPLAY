@@ -24,6 +24,10 @@ export function TeamsControl() {
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const [viewing, setViewing] = useState<Team | null>(null)
+  const [genderFilter, setGenderFilter] = useState<'All' | 'Male' | 'Female'>('All')
+  const genderCount = (g: string) => viewing?.players.filter((p) => g === 'All' || p.gender.toLowerCase() === g.toLowerCase()).length ?? 0
+  const shownPlayers = viewing?.players.filter((p) => genderFilter === 'All' || p.gender.toLowerCase() === genderFilter.toLowerCase()) ?? []
 
   const load = async () => {
     try { setTeams(await listTeams()) } finally { setLoading(false) }
@@ -37,9 +41,8 @@ export function TeamsControl() {
   const openEdit = (t: Team) => {
     setEditing(t)
     setForm({ name: t.name, color: t.color, logo_url: t.logo_url })
-    setPlayers(t.players.map((p) => ({
-      name: p.name, gender: p.gender, jersey_number: p.jersey_number, status: p.status, photo_url: p.photo_url,
-    })))
+    // Spread keeps the imported registration profile, so saving an edit doesn't wipe it.
+    setPlayers(t.players.map(({ id: _id, team_id: _teamId, ...p }) => p))
     setError(''); setOpen(true)
   }
 
@@ -101,10 +104,14 @@ export function TeamsControl() {
               {t.logo_url
                 ? <img src={t.logo_url} alt="" className="h-9 w-9 rounded-lg object-cover shrink-0" />
                 : <div className="h-9 w-9 rounded-lg shrink-0" style={{ background: t.color }} />}
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-bold text-dark-100 truncate">{t.name}</p>
-                <p className="text-xs text-dark-500">{t.players.length} player{t.players.length === 1 ? '' : 's'}</p>
-              </div>
+              <button onClick={() => { setViewing(t); setGenderFilter('All') }} className="min-w-0 flex-1 text-left" title="View players">
+                <p className="text-sm font-bold text-dark-100 truncate hover:text-brand-400 transition-colors">{t.name}</p>
+                <p className="text-xs text-dark-500">
+                  {t.players.length} player{t.players.length === 1 ? '' : 's'}
+                  {' · '}{t.players.filter((p) => p.gender.toLowerCase() === 'male').length} M
+                  {' · '}{t.players.filter((p) => p.gender.toLowerCase() === 'female').length} F
+                </p>
+              </button>
               <button onClick={() => openEdit(t)} className="p-1.5 rounded-lg text-dark-400 hover:text-brand-400 hover:bg-dark-800 transition-colors" title="Edit">
                 <Pencil size={14} />
               </button>
@@ -115,6 +122,39 @@ export function TeamsControl() {
           ))}
         </div>
       )}
+
+      <Modal open={!!viewing} onClose={() => setViewing(null)} size="xl" title={viewing?.name ?? ''}>
+        <div className="flex gap-2 mb-4" role="group" aria-label="Filter by gender">
+          {(['All', 'Male', 'Female'] as const).map((g) => (
+            <button key={g} onClick={() => setGenderFilter(g)} aria-pressed={genderFilter === g}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${genderFilter === g ? 'bg-brand-600 text-white' : 'bg-dark-850 text-dark-400 hover:text-dark-100'}`}>
+              {g} ({genderCount(g)})
+            </button>
+          ))}
+        </div>
+        {shownPlayers.length === 0 ? (
+          <p className="text-sm text-dark-500 py-6 text-center">No players in this filter.</p>
+        ) : (
+          <div className="space-y-1.5 max-h-[60vh] overflow-y-auto">
+            {shownPlayers.map((p) => (
+              <div key={p.id} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-dark-850 border border-dark-800">
+                <span className="w-8 text-center font-mono text-sm font-bold tabular-nums" style={{ color: viewing?.color }}>{p.jersey_number || '–'}</span>
+                {p.photo_url && <img src={p.photo_url} alt="" className="h-8 w-8 rounded-full object-cover" />}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-dark-100 truncate">{p.name}</p>
+                  <p className="text-xs text-dark-500 truncate">
+                    {[p.gender, p.age ? `${p.age} yrs` : '', p.date_of_birth, p.category, p.player_code].filter(Boolean).join(' · ')}
+                  </p>
+                </div>
+                <span className="text-xs text-dark-500 tabular-nums text-right" title="District · State · National · International games">
+                  D {p.district_games ?? 0} · S {p.state_games ?? 0} · N {p.national_games ?? 0} · I {p.international_games ?? 0}
+                </span>
+                <span className="text-xs text-dark-600 uppercase">{p.status}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>
 
       <Modal open={open} onClose={() => setOpen(false)} size="xl"
         title={editing ? `Edit ${editing.name}` : 'New Team'}
