@@ -5,10 +5,12 @@ import type { Match, Event } from '@/types'
 // client-side, no deps — Excel opens CSV directly.
 // ponytail: CSV not .xlsx; add SheetJS only if real Excel formatting is needed.
 
-// Mirrors the server clock: timeout-start / pause / sub / end freeze it;
-// timer_start and timeout_end resume it (match_start does NOT — intro plays first).
-const STOPS = new Set(['timer_pause', 'timeout_start', 'match_end', 'substitution'])
-const STARTS = new Set(['timer_start', 'timeout_end'])
+// Mirrors the server clock: an explicit pause, a sub, or the match ending freeze
+// it; timer_start resumes it (match_start does NOT — the intro plays first).
+// A timeout does NOT stop the clock; a court change (set boundary) does.
+const STOPS = new Set(['timer_pause', 'match_end', 'substitution'])
+const STARTS = new Set(['timer_start'])
+const COURT_CHANGE_MS = 120_000
 
 // Sepak Takraw set rules (mirror of backend setLimits/setWon).
 // ponytail: duplicated from Go; keep in sync if the ruleset changes.
@@ -42,6 +44,7 @@ export function buildMatchCsv(match: Match, events: Event[]): string {
 
   let accumulated = 0
   let lastStart: number | null = null
+  let breakStart: number | null = null // court-change break in progress
   // Set tracking — mirrors the server so set boundaries land at the right time.
   let setIdx = 0, sa = 0, sb = 0, setsA = 0, setsB = 0, matchOver = false, setStarted = false
 
@@ -51,6 +54,12 @@ export function buildMatchCsv(match: Match, events: Event[]): string {
 
   for (const e of rows) {
     const t = new Date(e.created_at).getTime()
+    // Court-change break ends early on the next point, or auto-expires after 2 min.
+    if (breakStart !== null) {
+      const auto = breakStart + COURT_CHANGE_MS
+      if (t >= auto)                    { lastStart = auto; breakStart = null }
+      else if (e.type === 'score_update') { lastStart = t;    breakStart = null }
+    }
     if (lastStart !== null && STOPS.has(e.type)) { accumulated += (t - lastStart) / 1000; lastStart = null }
     const clock = accumulated + (lastStart !== null ? (t - lastStart) / 1000 : 0)
     if (lastStart === null && STARTS.has(e.type)) lastStart = t
@@ -78,8 +87,15 @@ export function buildMatchCsv(match: Match, events: Event[]): string {
           push('', time, clock, setIdx + 1, `Set ${setIdx + 1} — completed`, `${sa}–${sb} · won by ${winner}`)
           if (sa > sb) setsA++; else setsB++
           sa = 0; sb = 0
-          if (setsA === 2 || setsB === 2) matchOver = true
-          else { setIdx++; push('', time, clock, setIdx + 1, `Set ${setIdx + 1} — started`, '') }
+          if (setsA === 2 || setsB === 2) {
+            matchOver = true
+          } else {
+            // Court change: the clock stops for the break.
+            if (lastStart !== null) { accumulated += (t - lastStart) / 1000; lastStart = null }
+            breakStart = t
+            setIdx++
+            push('', time, clock, setIdx + 1, `Set ${setIdx + 1} — started`, '')
+          }
         }
       }
     }

@@ -4,7 +4,7 @@ import type {
   User, Tournament, Court, Match, Event, MatchState, Player,
   CreateMatchPayload, DisplayLayoutPayload, TimeoutPayload,
   SubstitutionPayload, ScorePayload, PlayerInput, DeviceInfo, ServerInfo,
-  DisplayAsset,
+  DisplayAsset, Team,
 } from '@/types'
 
 const BASE = import.meta.env.VITE_API_URL ?? '/api'
@@ -49,7 +49,7 @@ export const deleteUser = (id: string) => api.delete(`/users/${id}`)
 // Tournaments
 export const listTournaments = () => api.get<Tournament[]>('/tournaments').then((r) => r.data)
 export const getTournament = (id: string) => api.get<Tournament>(`/tournaments/${id}`).then((r) => r.data)
-export const createTournament = (data: { name: string; sport?: string }) =>
+export const createTournament = (data: { name: string; sport?: string; event_type?: string }) =>
   api.post<Tournament>('/tournaments', data).then((r) => r.data)
 export const updateTournamentStatus = (id: string, status: string) =>
   api.patch(`/tournaments/${id}/status`, { status })
@@ -104,6 +104,19 @@ export const uploadMedia = async (file: File): Promise<{ url: string; is_video: 
   return r.data
 }
 
+// Saved teams (roster templates)
+export const listTeams = () => api.get<Team[]>('/teams').then((r) => r.data)
+
+export const createTeam = (data: {
+  name: string; color?: string; logo_url?: string; players?: PlayerInput[]
+}) => api.post<Team>('/teams', data).then((r) => r.data)
+
+export const updateTeam = (id: string, data: {
+  name: string; color?: string; logo_url?: string; players?: PlayerInput[]
+}) => api.put<Team>(`/teams/${id}`, data).then((r) => r.data)
+
+export const deleteTeam = (id: string) => api.delete(`/teams/${id}`)
+
 // Events
 export const listEvents = (matchId: string) =>
   api.get<Event[]>(`/matches/${matchId}/events`).then((r) => r.data)
@@ -125,6 +138,9 @@ export const setFirstServer = (matchId: string, team: 'A' | 'B') =>
   createEvent(matchId, 'serve_set', { team })
 
 export const startMatch = (matchId: string) => createEvent(matchId, 'match_start')
+
+/** Advance a double/quad match to its next round (controller-driven). */
+export const startRound = (matchId: string) => createEvent(matchId, 'round_start')
 export const endMatch = (matchId: string) => createEvent(matchId, 'match_end')
 export const startTimer = (matchId: string) => createEvent(matchId, 'timer_start')
 export const pauseTimer = (matchId: string) => createEvent(matchId, 'timer_pause')

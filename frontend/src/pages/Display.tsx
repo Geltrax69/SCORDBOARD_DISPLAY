@@ -34,7 +34,9 @@ type OverlayState =
   | { type: 'countdown'; match: Match; players: Player[]; pendingState: MatchState }
   | { type: 'lineup'; match: Match; players: Player[] }
   | { type: 'timeout'; payload: TimeoutPayload; match: Match }
-  | { type: 'courtchange'; match: Match; nextSet: number }
+  | { type: 'courtchange'; match: Match; nextSet: number; state: MatchState }
+  | { type: 'roundbreak'; match: Match; state: MatchState }
+  | { type: 'roundstart'; match: Match; state: MatchState }
   | { type: 'substitution'; payload: SubstitutionPayload; match: Match }
   | { type: 'setpoint'; match: Match; team: 'A' | 'B'; isMatch: boolean }
   | { type: 'announcement'; payload: AnnouncementPayload }
@@ -46,7 +48,9 @@ type OverlayState =
 type CellFx =
   | { kind: 'sub'; payload: SubstitutionPayload }
   | { kind: 'setpoint'; team: 'A' | 'B'; isMatch: boolean }
-  | { kind: 'courtchange'; nextSet: number }
+  | { kind: 'courtchange'; nextSet: number; state: MatchState }
+  | { kind: 'roundbreak'; state: MatchState }
+  | { kind: 'roundstart'; state: MatchState }
 
 export default function Display() {
   const [searchParams] = useSearchParams()
@@ -183,11 +187,16 @@ export default function Display() {
           const newlyPoint = !!curTeam && payload.state.status === 'active' &&
             (curTeam !== prevTeam || curIsMatch !== !!prevSt?.match_point)
           setLiveMatches((prev) => ({ ...prev, [match_id]: { match: payload.match!, state: payload.state! } }))
+          const roundJustEnded = payload.state.awaiting_round && !prevSt?.awaiting_round
           if (type === 'match_end' || justCompleted) {
             setCelebrating({ match: payload.match, state: payload.state })
+          } else if (roundJustEnded) {
+            // A completed round outranks the set that ended it.
+            if (multiRef.current) flashCell(match_id, { kind: 'roundbreak', state: payload.state }, 120000)
+            else setOverlay({ type: 'roundbreak', match: payload.match, state: payload.state })
           } else if (setJustFinished) {
-            if (multiRef.current) flashCell(match_id, { kind: 'courtchange', nextSet: payload.state.set_number }, 120000)
-            else setOverlay({ type: 'courtchange', match: payload.match, nextSet: payload.state.set_number })
+            if (multiRef.current) flashCell(match_id, { kind: 'courtchange', nextSet: payload.state.set_number, state: payload.state }, 120000)
+            else setOverlay({ type: 'courtchange', match: payload.match, nextSet: payload.state.set_number, state: payload.state })
           } else if (newlyPoint) {
             if (multiRef.current) flashCell(match_id, { kind: 'setpoint', team: curTeam as 'A' | 'B', isMatch: curIsMatch }, 3500)
             else setOverlay({ type: 'setpoint', match: payload.match, team: curTeam as 'A' | 'B', isMatch: curIsMatch })
@@ -207,6 +216,14 @@ export default function Display() {
           })
           // Show 5-second countdown BEFORE switching to live view
           setOverlay({ type: 'countdown', match: m, players: pl, pendingState: payload.state! })
+        }
+        break
+      }
+      case 'round_start': {
+        if (match_id && payload.match && payload.state) {
+          setLiveMatches((prev) => ({ ...prev, [match_id]: { match: payload.match!, state: payload.state! } }))
+          if (multiRef.current) flashCell(match_id, { kind: 'roundstart', state: payload.state }, 5000)
+          else setOverlay({ type: 'roundstart', match: payload.match, state: payload.state })
         }
         break
       }
@@ -388,6 +405,17 @@ export default function Display() {
         <CourtChangeOverlay
           match={overlay.match}
           nextSet={overlay.nextSet}
+          state={overlay.state}
+          onDone={() => setOverlay({ type: 'none' })}
+        />
+      )}
+      {overlay.type === 'roundbreak' && (
+        <RoundBreakOverlay match={overlay.match} state={overlay.state} />
+      )}
+      {overlay.type === 'roundstart' && (
+        <RoundStartOverlay
+          match={overlay.match}
+          state={overlay.state}
           onDone={() => setOverlay({ type: 'none' })}
         />
       )}
@@ -1275,26 +1303,221 @@ function ServeBall({ show, size = 'clamp(0.9rem, 1.4vw, 1.6rem)', color = '#fbbf
   )
 }
 
-// 2-minute interval between sets while the teams change ends.
-function CourtChangeOverlay({ match, nextSet, onDone }: { match: Match; nextSet: number; onDone: () => void }) {
-  const [remaining, setRemaining] = useState(120)
+// 2-minute interval between sets while the teams change ends. The set that just
+// finished is the headline; the countdown lives at the foot of the screen so the
+// result reads first and the clock never competes with it.
+const BREAK_TOTAL = 120
+
+function BreakCountdown({ remaining, total, accent, label }: {
+  remaining: number; total: number; accent: string; label: string
+}) {
+  const mm = Math.floor(remaining / 60)
+  const ss = String(remaining % 60).padStart(2, '0')
+  const pct = Math.max(0, Math.min(1, remaining / total))
+  const urgent = remaining <= 10
+  const glow = urgent ? '#ef4444' : accent
+  return (
+    <div className="absolute inset-x-0 bottom-0 px-[6vw] pb-[5vh]">
+      <div className="flex items-end justify-between gap-6 mb-3">
+        <span className="font-black uppercase tracking-[0.35em] text-white/45"
+          style={{ fontSize: 'clamp(0.7rem,1.1vw,1rem)' }}>{label}</span>
+        <span
+          className={clsx('font-mono font-black tabular-nums leading-none', urgent && 'animate-pulse')}
+          style={{
+            fontSize: 'clamp(2.6rem,7vw,6rem)',
+            color: glow,
+            textShadow: `0 0 12px ${glow}88, 0 0 48px ${glow}55, 0 0 96px ${glow}33`,
+          }}>
+          {mm}:{ss}
+        </span>
+      </div>
+      {/* Depleting rail — the countdown made spatial. */}
+      <div className="relative h-[6px] w-full rounded-full overflow-hidden bg-white/[0.07]">
+        <div
+          className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-1000 ease-linear"
+          style={{
+            width: `${pct * 100}%`,
+            background: `linear-gradient(90deg, ${glow}55 0%, ${glow} 100%)`,
+            boxShadow: `0 0 14px ${glow}cc, 0 0 34px ${glow}77`,
+          }}
+        />
+      </div>
+    </div>
+  )
+}
+
+function CourtChangeOverlay({ match, nextSet, state, onDone }: {
+  match: Match; nextSet: number; state?: MatchState; onDone: () => void
+}) {
+  const [remaining, setRemaining] = useState(BREAK_TOTAL)
   useEffect(() => {
     if (remaining <= 0) { onDone(); return }
     const t = setTimeout(() => setRemaining((r) => r - 1), 1000)
     return () => clearTimeout(t)
   }, [remaining, onDone])
-  const mm = Math.floor(remaining / 60)
-  const ss = String(remaining % 60).padStart(2, '0')
+
+  const winner = state?.last_set_winner
+  const wonName  = winner === 'A' ? match.team_a : winner === 'B' ? match.team_b : ''
+  const accent   = winner === 'A' ? match.team_a_color : winner === 'B' ? match.team_b_color : '#f59e0b'
+  const lastSet  = state?.completed_sets?.[state.completed_sets.length - 1]
+  const [hi, lo] = lastSet ? [Math.max(lastSet[0], lastSet[1]), Math.min(lastSet[0], lastSet[1])] : [0, 0]
+  const setsWon  = state ? `${state.sets_a}–${state.sets_b}` : ''
+
   return (
-    <div className="fixed inset-0 z-[70] flex flex-col items-center justify-center bg-[#020611]/95 backdrop-blur-sm">
-      <p className="text-white/40 text-lg font-black uppercase tracking-[0.4em] mb-4">{match.court_name || 'Court'}</p>
-      <p className="text-amber-400 font-black uppercase tracking-[0.3em] mb-6" style={{ fontSize: 'clamp(1.5rem, 4vw, 3rem)' }}>
-        Court Change
-      </p>
-      <div className="font-mono font-black tabular-nums text-white leading-none" style={{ fontSize: 'clamp(5rem, 16vw, 14rem)' }}>
-        {mm}:{ss}
+    <div className="fixed inset-0 z-[70] overflow-hidden bg-[#020611]"
+      style={{ background: `radial-gradient(ellipse 90% 70% at 50% 38%, ${accent}2e 0%, transparent 68%), #020611` }}>
+      <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-[6vw] pb-[14vh]">
+        <p className="font-black uppercase tracking-[0.45em] text-white/35"
+          style={{ fontSize: 'clamp(0.7rem,1.1vw,1rem)' }}>
+          {match.court_name || 'Court'} · Court Change
+        </p>
+
+        {wonName ? (
+          <>
+            <p className="font-black uppercase tracking-[0.3em] mt-[4vh]"
+              style={{ fontSize: 'clamp(0.8rem,1.4vw,1.15rem)', color: `${accent}cc` }}>
+              Set {state?.completed_sets?.length ?? nextSet - 1} to
+            </p>
+            <h2 className="font-black uppercase leading-[0.95] mt-2 text-balance break-words max-w-full"
+              style={{
+                fontSize: 'clamp(1.9rem,6vw,5rem)', color: accent,
+                textShadow: `0 0 60px ${accent}55`,
+              }}>
+              {wonName}
+            </h2>
+            {lastSet && (
+              <p className="font-mono font-black tabular-nums text-white/85 mt-[2vh] leading-none"
+                style={{ fontSize: 'clamp(1.8rem,4.5vw,3.6rem)' }}>
+                {hi}<span className="text-white/25 px-2">–</span>{lo}
+              </p>
+            )}
+          </>
+        ) : (
+          <h2 className="font-black uppercase leading-none mt-[4vh] text-amber-400"
+            style={{ fontSize: 'clamp(2.2rem,7vw,6rem)' }}>Court Change</h2>
+        )}
+
+        <div className="flex items-center gap-6 mt-[4vh]">
+          {setsWon && (
+            <span className="font-bold uppercase tracking-[0.25em] text-white/45"
+              style={{ fontSize: 'clamp(0.7rem,1.1vw,0.95rem)' }}>
+              Sets {setsWon}
+            </span>
+          )}
+          <span className="h-1 w-1 rounded-full bg-white/20" />
+          <span className="font-bold uppercase tracking-[0.25em] text-white/45"
+            style={{ fontSize: 'clamp(0.7rem,1.1vw,0.95rem)' }}>
+            Set {Math.min(nextSet, 3)} next
+          </span>
+        </div>
       </div>
-      <p className="text-white/50 text-xl font-bold uppercase tracking-widest mt-6">Set {Math.min(nextSet, 3)} next</p>
+
+      <BreakCountdown remaining={remaining} total={BREAK_TOTAL} accent={accent} label="Resuming in" />
+    </div>
+  )
+}
+
+// Between rounds: the round just banked, the running round tally, and the same
+// glowing countdown rail as a court change. Held until the controller starts the
+// next round, so the countdown is a cue to get ready, not a hard deadline.
+function RoundBreakOverlay({ match, state }: { match: Match; state: MatchState }) {
+  const [remaining, setRemaining] = useState(BREAK_TOTAL)
+  useEffect(() => {
+    if (remaining <= 0) return
+    const t = setTimeout(() => setRemaining((r) => r - 1), 1000)
+    return () => clearTimeout(t)
+  }, [remaining])
+
+  const w: 'A' | 'B' = state.rounds_a > state.rounds_b ? 'A' : 'B'
+  const wonName = w === 'A' ? match.team_a : match.team_b
+  const accent  = w === 'A' ? match.team_a_color : match.team_b_color
+  const more    = state.total_rounds - state.round_number
+
+  return (
+    <div className="fixed inset-0 z-[70] overflow-hidden bg-[#020611]"
+      style={{ background: `radial-gradient(ellipse 90% 70% at 50% 38%, ${accent}2e 0%, transparent 68%), #020611` }}>
+      <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-[6vw] pb-[14vh]">
+        <p className="font-black uppercase tracking-[0.45em] text-white/35"
+          style={{ fontSize: 'clamp(0.7rem,1.1vw,1rem)' }}>
+          {match.court_name || 'Court'} · Round {state.round_number} complete
+        </p>
+
+        <h2 className="font-black uppercase leading-[0.95] mt-[4vh] text-balance break-words max-w-full"
+          style={{ fontSize: 'clamp(1.9rem,6vw,5rem)', color: accent, textShadow: `0 0 60px ${accent}55` }}>
+          {wonName}
+        </h2>
+        <p className="font-black uppercase tracking-[0.3em] mt-2"
+          style={{ fontSize: 'clamp(0.8rem,1.4vw,1.15rem)', color: `${accent}cc` }}>
+          takes round {state.round_number}
+        </p>
+
+        {/* Running round tally — the thing that actually decides the match. */}
+        <div className="flex items-start justify-center gap-[6vw] mt-[5vh]">
+          {(['A', 'B'] as const).map((t) => {
+            const nm = t === 'A' ? match.team_a : match.team_b
+            const col = t === 'A' ? match.team_a_color : match.team_b_color
+            const val = t === 'A' ? state.rounds_a : state.rounds_b
+            return (
+              <div key={t} className="flex flex-col items-center gap-1.5">
+                <span className="font-black tabular-nums leading-none"
+                  style={{ fontSize: 'clamp(2.4rem,7vw,5.5rem)', color: col }}>{val}</span>
+                <span className="font-bold uppercase tracking-[0.15em] text-white/45 text-center text-balance max-w-[18ch]"
+                  style={{ fontSize: 'clamp(0.62rem,1vw,0.9rem)' }}>{nm}</span>
+              </div>
+            )
+          })}
+        </div>
+        <p className="font-bold uppercase tracking-[0.3em] text-white/35 mt-[3vh]"
+          style={{ fontSize: 'clamp(0.65rem,1vw,0.9rem)' }}>
+          Rounds won · {more} {more === 1 ? 'round' : 'rounds'} to play
+        </p>
+      </div>
+
+      <BreakCountdown remaining={remaining} total={BREAK_TOTAL} accent={accent} label="Next round in" />
+    </div>
+  )
+}
+
+// The controller has started the next round — announce it, then get out of the way.
+function RoundStartOverlay({ match, state, onDone }: { match: Match; state: MatchState; onDone: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const t = setTimeout(onDone, 4200)
+    return () => clearTimeout(t)
+  }, [onDone])
+  useEffect(() => {
+    const ctx = gsap.context(() => {
+      // fromTo (not from) — the end state is explicit, so a re-render that reverts
+      // the context can never leave the copy stranded at opacity 0.
+      gsap.fromTo('.rs-num', { scale: 0.72, opacity: 0 },
+        { scale: 1, opacity: 1, duration: 0.7, ease: 'expo.out' })
+      gsap.fromTo('.rs-line', { scaleX: 0 },
+        { scaleX: 1, duration: 0.8, ease: 'expo.out', delay: 0.15 })
+      gsap.fromTo('.rs-meta', { y: 14, opacity: 0 },
+        { y: 0, opacity: 1, duration: 0.5, ease: 'power2.out', delay: 0.3 })
+    }, ref)
+    return () => ctx.revert()
+  }, [])
+
+  const accent = '#22c55e'
+  return (
+    <div ref={ref} className="fixed inset-0 z-[70] flex flex-col items-center justify-center overflow-hidden"
+      style={{ background: `radial-gradient(ellipse 80% 60% at 50% 50%, ${accent}26 0%, transparent 70%), #020611` }}>
+      <p className="rs-meta font-black uppercase tracking-[0.45em] text-white/35"
+        style={{ fontSize: 'clamp(0.7rem,1.1vw,1rem)' }}>{match.court_name || 'Court'}</p>
+
+      <h2 className="rs-num font-black uppercase leading-[0.85] mt-[3vh] text-white text-center"
+        style={{ fontSize: 'clamp(3rem,13vw,11rem)', textShadow: `0 0 70px ${accent}55` }}>
+        Round {state.round_number}
+      </h2>
+
+      <div className="rs-line h-[3px] w-[34vw] rounded-full mt-[3vh]"
+        style={{ background: `linear-gradient(90deg, transparent, ${accent}, transparent)`, boxShadow: `0 0 20px ${accent}aa` }} />
+
+      <p className="rs-meta font-bold uppercase tracking-[0.3em] text-white/45 mt-[3vh]"
+        style={{ fontSize: 'clamp(0.7rem,1.1vw,0.95rem)' }}>
+        of {state.total_rounds} · rounds {state.rounds_a}–{state.rounds_b}
+      </p>
     </div>
   )
 }
@@ -1661,15 +1884,47 @@ function CellFxOverlay({ fx, m }: { fx: CellFx; m: Match }) {
     heading = fx.isMatch ? 'Match Point' : 'Set Point'
     sub = <span className="fx-pop font-black uppercase tracking-widest text-white" style={{ fontSize: 'clamp(1rem,2.4vw,2rem)' }}>{team(fx.team)}</span>
   } else if (fx.kind === 'courtchange') {
-    accent = '#f59e0b'
-    heading = 'Court Change'
+    const w = fx.state?.last_set_winner
+    accent = w ? teamColor(w) : '#f59e0b'
+    heading = w ? team(w) : 'Court Change'
+    const last = fx.state?.completed_sets?.[fx.state.completed_sets.length - 1]
     sub = (
-      <div className="fx-pop flex flex-col items-center gap-1">
-        <span className="font-black font-mono tabular-nums text-white leading-none" style={{ fontSize: 'clamp(2.5rem,7vw,5rem)' }}>
+      <div className="fx-pop flex flex-col items-center gap-1.5">
+        {w && (
+          <span className="font-bold uppercase tracking-[0.3em] text-white/45 text-[10px]">
+            takes set {fx.state?.completed_sets?.length ?? fx.nextSet - 1}
+            {last ? ` · ${Math.max(last[0], last[1])}–${Math.min(last[0], last[1])}` : ''}
+          </span>
+        )}
+        <span className="font-black font-mono tabular-nums leading-none"
+          style={{ fontSize: 'clamp(2rem,5.5vw,4rem)', color: accent, textShadow: `0 0 22px ${accent}99` }}>
           {Math.floor(cc / 60)}:{String(cc % 60).padStart(2, '0')}
         </span>
-        <span className="font-bold uppercase tracking-[0.3em] text-white/50 text-xs mt-1">Set {fx.nextSet} next</span>
+        <span className="font-bold uppercase tracking-[0.3em] text-white/45 text-[10px]">Set {fx.nextSet} next</span>
       </div>
+    )
+  } else if (fx.kind === 'roundbreak') {
+    const st = fx.state
+    const w: 'A' | 'B' = st.rounds_a > st.rounds_b ? 'A' : 'B'
+    accent = teamColor(w)
+    heading = `Round ${st.round_number} to ${team(w)}`
+    sub = (
+      <div className="fx-pop flex flex-col items-center gap-1.5">
+        <span className="font-black tabular-nums text-white leading-none" style={{ fontSize: 'clamp(1.6rem,4vw,3rem)' }}>
+          {st.rounds_a}<span className="text-white/25 px-2">–</span>{st.rounds_b}
+        </span>
+        <span className="font-bold uppercase tracking-[0.3em] text-white/45 text-[10px]">
+          Round {st.round_number + 1} of {st.total_rounds} next
+        </span>
+      </div>
+    )
+  } else if (fx.kind === 'roundstart') {
+    accent = '#22c55e'
+    heading = `Round ${fx.state.round_number}`
+    sub = (
+      <span className="fx-pop font-bold uppercase tracking-[0.3em] text-white/50 text-xs">
+        of {fx.state.total_rounds} · rounds {fx.state.rounds_a}–{fx.state.rounds_b}
+      </span>
     )
   } else {
     accent = '#a855f7'

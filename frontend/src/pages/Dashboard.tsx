@@ -5,23 +5,24 @@ import { useAuthStore } from '@/store/authStore'
 import { useMatchStore } from '@/store/matchStore'
 import { useWSStore } from '@/store/wsStore'
 import { useWebSocket } from '@/hooks/useWebSocket'
-import { listTournaments, listMatches, listCourts, createTournament, createCourt, createMatch, updateMatchStatus, deleteMatch, uploadTeamLogo } from '@/services/api'
+import { listTournaments, listMatches, listCourts, createTournament, createCourt, createMatch, updateMatchStatus, deleteMatch, uploadTeamLogo, listTeams } from '@/services/api'
 import { useToastStore } from '@/store/toastStore'
 import { Modal } from '@/components/common/Modal'
 import { PageLoader } from '@/components/common/LoadingSpinner'
 import { DeviceDashboard } from '@/components/admin/DeviceDashboard'
 import { DisplayControl } from '@/components/admin/DisplayControl'
 import { DisplayAssetsControl } from '@/components/admin/DisplayAssetsControl'
+import { TeamsControl } from '@/components/admin/TeamsControl'
 import { MatchQRModal } from '@/components/admin/MatchQRModal'
 import { PlayersForm } from '@/components/admin/PlayersForm'
 import {
   Trophy, MapPin, Zap, Plus, ExternalLink,
   Wifi, WifiOff, Copy, Check, ChevronRight,
-  QrCode, Activity, TrendingUp, StopCircle, Trash2,
-  Upload, X, ImageIcon, Loader2, CheckCircle2,
+  QrCode, TrendingUp, StopCircle, Trash2,
+  Upload, X, ImageIcon, Loader2, Tv, Users, Settings,
 } from 'lucide-react'
 
-import type { ServerInfo, PlayerInput, Match } from '@/types'
+import type { ServerInfo, PlayerInput, Match, Team, EventFormat } from '@/types'
 
 const API_BASE = import.meta.env.VITE_API_URL ?? '/api'
 
@@ -43,20 +44,49 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-function StatCard({ label, value, icon, color, glow }: { label: string; value: number; icon: React.ReactNode; color: string; glow: string }) {
+type TabId = 'matches' | 'display' | 'teams' | 'setup'
+
+const TABS: { id: TabId; label: string; icon: typeof Zap; adminOnly?: boolean }[] = [
+  { id: 'matches', label: 'Matches', icon: Zap },
+  { id: 'display', label: 'Display', icon: Tv,    adminOnly: true },
+  { id: 'teams',   label: 'Teams',   icon: Users, adminOnly: true },
+  { id: 'setup',   label: 'Setup',   icon: Settings, adminOnly: true },
+]
+
+const EVENT_FORMATS: { id: EventFormat; label: string; rounds: string; hint: string }[] = [
+  { id: 'regu',   label: 'Regu',   rounds: '1 round',  hint: 'One round of best-of-3 sets — first to 2 sets takes the match.' },
+  { id: 'double', label: 'Double', rounds: '2 rounds', hint: 'Two rounds of best-of-3 sets. Level at 1–1 plays a deciding third round.' },
+  { id: 'quad',   label: 'Quad',   rounds: '3 rounds', hint: 'Three rounds of best-of-3 sets, all played out. Winner leads on rounds.' },
+]
+
+const MATCH_FILTERS: { id: 'open' | 'finished' | 'all'; label: string }[] = [
+  { id: 'open',     label: 'Upcoming' },
+  { id: 'finished', label: 'Finished' },
+  { id: 'all',      label: 'All' },
+]
+
+function SectionHead({ icon, title, count, accent, bare }: {
+  icon: React.ReactNode; title: string; count?: number; accent?: boolean; bare?: boolean
+}) {
   return (
-    <div className={clsx('card-hi p-5 relative overflow-hidden group hover:border-dark-700 transition-all duration-200', glow && `hover:shadow-${glow}`)}>
-      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-        style={{ background: `radial-gradient(circle at top right, ${color}08 0%, transparent 60%)` }} />
-      <div className="flex items-start justify-between relative z-10">
-        <div>
-          <p className="text-xs font-semibold text-dark-500 uppercase tracking-wider mb-3">{label}</p>
-          <p className="text-4xl font-black text-white">{value}</p>
-        </div>
-        <div className="p-2.5 rounded-xl" style={{ backgroundColor: `${color}15`, color }}>
-          {icon}
-        </div>
-      </div>
+    <div className={clsx('flex items-center gap-2.5', bare ? 'mb-3.5' : 'mb-3.5')}>
+      {icon}
+      <h2 className="text-base font-bold text-white tracking-tight whitespace-nowrap">{title}</h2>
+      {count !== undefined && (
+        <span className={clsx('px-2 py-0.5 rounded-full text-[11px] font-bold tabular-nums',
+          accent ? 'bg-live/10 border border-live/20 text-live' : 'bg-dark-850 text-dark-500')}>{count}</span>
+      )}
+    </div>
+  )
+}
+
+function Metric({ label, value, icon, color }: { label: string; value: number; icon: React.ReactNode; color: string }) {
+  return (
+    <div className="flex items-center gap-2.5">
+      <span className="grid place-items-center h-7 w-7 rounded-lg shrink-0"
+        style={{ backgroundColor: `${color}15`, color }}>{icon}</span>
+      <span className="text-lg font-black text-white tabular-nums leading-none">{value}</span>
+      <span className="text-xs font-semibold text-dark-500 uppercase tracking-wider">{label}</span>
     </div>
   )
 }
@@ -179,6 +209,7 @@ export default function Dashboard() {
   // Forms
   const [tourName, setTourName]   = useState('')
   const [tourSport, setTourSport] = useState('')
+  const [tourFormat, setTourFormat] = useState<EventFormat>('regu')
   const [courtName, setCourtName] = useState('')
   const [courtTourId, setCourtTourId] = useState('')
   const [matchStep, setMatchStep] = useState<1|2|3>(1)
@@ -187,6 +218,9 @@ export default function Dashboard() {
     team_a_color: '#3B82F6', team_b_color: '#EF4444',
     team_a_logo: '', team_b_logo: '',
   })
+  const [tab, setTab] = useState<TabId>('matches')
+  const [matchFilter, setMatchFilter] = useState<'open' | 'finished' | 'all'>('open')
+  const [savedTeams, setSavedTeams] = useState<Team[]>([])
   const [playersA, setPlayersA] = useState<PlayerInput[]>([])
   const [playersB, setPlayersB] = useState<PlayerInput[]>([])
 
@@ -196,6 +230,7 @@ export default function Dashboard() {
     Promise.all([listTournaments(), listMatches(), listCourts()]).then(([ts, ms, cs]) => {
       setTournaments(ts); setMatches(ms); setCourts(cs); setLoading(false)
     })
+    listTeams().then(setSavedTeams).catch(() => {})
     fetchServerInfo()
   }, [])
 
@@ -204,6 +239,13 @@ export default function Dashboard() {
   const isDone        = (s: string) => s === 'completed' || s === 'cancelled'
   const openMatches   = matches.filter((m) => !isDone(m.status))
   const finishedMatches = matches.filter((m) => isDone(m.status))
+  const visibleMatches  = matchFilter === 'all' ? matches
+                        : matchFilter === 'finished' ? finishedMatches
+                        : openMatches
+  const tabCounts: Partial<Record<TabId, number>> = {
+    matches: activeMatches.length,
+    teams: savedTeams.length,
+  }
 
   // ── Safe async runner: shows toast on error, never stays stuck (10s timeout) ──
   const safeRun = async (
@@ -262,11 +304,11 @@ export default function Dashboard() {
     setSaving(true)
     try {
       const t = await toast.promise(
-        createTournament({ name: tourName, sport: tourSport || 'general' }),
+        createTournament({ name: tourName, sport: tourSport || 'general', event_type: tourFormat }),
         { loading: 'Creating tournament…', success: `"${tourName}" created!`, error: 'Failed to create tournament' }
       )
       setTournaments([t, ...tournaments])
-      setTourModal(false); setTourName(''); setTourSport('')
+      setTourModal(false); setTourName(''); setTourSport(''); setTourFormat('regu')
     } catch {} finally { setSaving(false) }
   }
 
@@ -303,6 +345,33 @@ export default function Dashboard() {
     } catch {} finally { setSaving(false) }
   }
 
+  // Picking a saved team fills in its name, colors, logo and whole roster.
+  const applyTeam = (side: 'A' | 'B', teamId: string) => {
+    const t = savedTeams.find((x) => x.id === teamId)
+    const setPlayers = side === 'A' ? setPlayersA : setPlayersB
+    if (!t) {
+      setMatchForm((f) => ({ ...f, [`team_${side.toLowerCase()}`]: '' }))
+      setPlayers([])
+      return
+    }
+    setMatchForm((f) => ({
+      ...f,
+      [`team_${side.toLowerCase()}`]: t.name,
+      [`team_${side.toLowerCase()}_color`]: t.color,
+      [`team_${side.toLowerCase()}_logo`]: t.logo_url,
+    }))
+    setPlayers(t.players.map((p) => ({
+      name: p.name, jersey_number: p.jersey_number, status: p.status, photo_url: p.photo_url,
+    })))
+  }
+
+  // Refresh rosters on open — a team added in the Teams tab must appear in the picker.
+  const openMatchModal = () => {
+    resetMatchForm()
+    setMatchModal(true)
+    listTeams().then(setSavedTeams).catch(() => {})
+  }
+
   const resetMatchForm = () => {
     setMatchStep(1)
     setMatchForm({ court_id: '', tournament_id: '', team_a: '', team_b: '', team_a_color: '#3B82F6', team_b_color: '#EF4444', team_a_logo: '', team_b_logo: '' })
@@ -320,21 +389,21 @@ export default function Dashboard() {
     const done = m.status === 'completed' || m.status === 'cancelled'
     return (
       <Link key={m.id} to={`/match/${m.id}`}
-        className="flex items-center gap-3 px-5 py-3.5 hover:bg-dark-900/60 transition-colors group">
+        className="flex flex-wrap items-center gap-y-2 gap-x-2 sm:gap-x-3 px-3 sm:px-5 py-3.5 hover:bg-dark-900/60 transition-colors group">
         <div className="w-1 h-8 rounded-full flex-shrink-0"
           style={{ background: `linear-gradient(to bottom, ${m.team_a_color}, ${m.team_b_color})` }} />
         <StatusBadge status={m.status} />
-        <span className="font-mono text-xs text-dark-700 hidden sm:block flex-shrink-0">#{m.match_code}</span>
-        <span className="text-xs text-dark-600 w-16 truncate hidden sm:block flex-shrink-0">{m.court_name}</span>
-        <div className="flex-1 flex items-center justify-between min-w-0">
-          <span className="font-semibold text-dark-200 text-sm truncate">{m.team_a}</span>
-          <span className="font-black text-white text-lg tabular-nums px-3 flex-shrink-0 font-score">
-            {m.score_a} <span className="text-dark-700">–</span> {m.score_b}
+        <span className="font-mono text-xs text-dark-500 flex-shrink-0">#{m.match_code}</span>
+        <span className="text-xs text-dark-500 w-16 truncate hidden sm:block flex-shrink-0">{m.court_name}</span>
+        <div className="order-last sm:order-none basis-full sm:basis-auto sm:flex-1 flex items-center justify-between min-w-0 gap-2">
+          <span className="flex-1 min-w-0 font-semibold text-dark-200 text-sm truncate">{m.team_a}</span>
+          <span className="font-black text-white text-lg tabular-nums px-2 sm:px-3 flex-shrink-0 font-score">
+            {m.score_a} <span className="text-dark-500">–</span> {m.score_b}
             {done && <span className="ml-1 text-[10px] font-bold uppercase tracking-widest text-dark-600">sets</span>}
           </span>
-          <span className="font-semibold text-dark-200 text-sm truncate text-right">{m.team_b}</span>
+          <span className="flex-1 min-w-0 font-semibold text-dark-200 text-sm truncate text-right">{m.team_b}</span>
         </div>
-        <div className="flex items-center gap-1 flex-shrink-0">
+        <div className="flex items-center gap-1 flex-shrink-0 ml-auto sm:ml-0">
           <button onClick={(e) => { e.preventDefault(); fetchServerInfo(); setQrMatch(m) }}
             className="p-1.5 rounded-lg text-dark-700 hover:text-brand-400 hover:bg-brand-500/10 transition-colors"
             title="Show QR code"><QrCode size={14} /></button>
@@ -367,15 +436,18 @@ export default function Dashboard() {
           <div className="absolute top-0 right-1/4 w-64 h-32 bg-live/5 blur-[80px]" />
         </div>
         <div className="relative px-6 py-6 max-w-7xl mx-auto">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <Activity size={14} className="text-brand-400" />
-                <span className="text-xs text-dark-500 font-medium uppercase tracking-widest">Tournament Dashboard</span>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="min-w-0">
+              <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight text-balance">
+                {tournaments.find((t) => t.status === 'active')?.name ?? 'Tournament control'}
+              </h1>
+              <div className="flex items-center gap-x-5 gap-y-2 mt-2.5 flex-wrap">
+                <Metric label="Live"   value={activeMatches.length} color="#22c55e" icon={<Zap size={14} />} />
+                <Metric label="Courts" value={courts.length}        color="#38bdf8" icon={<MapPin size={14} />} />
+                <Metric label="Events" value={tournaments.length}   color="#6366f1" icon={<Trophy size={14} />} />
               </div>
-              <h1 className="text-2xl font-black text-white">Welcome back, {user?.email} 👋</h1>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 shrink-0">
               <div className={clsx(
                 'flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border',
                 wsStatus === 'connected'
@@ -386,7 +458,7 @@ export default function Dashboard() {
                 {wsStatus === 'connected' ? 'Live Connected' : 'Offline'}
               </div>
               {isSuperAdmin && (
-                <button onClick={() => { resetMatchForm(); setMatchModal(true) }}
+                <button onClick={openMatchModal}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl font-semibold text-sm text-white
                              bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400
                              transition-all shadow-glow-brand/0 hover:shadow-glow-brand btn-neon">
@@ -399,181 +471,186 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="px-6 py-6 max-w-7xl mx-auto space-y-8">
-
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-4">
-          <StatCard label="Tournaments" value={tournaments.length} color="#6366f1" glow="glow-brand"
-            icon={<Trophy size={20} />} />
-          <StatCard label="Courts" value={courts.length} color="#38bdf8" glow=""
-            icon={<MapPin size={20} />} />
-          <StatCard label="Live Now" value={activeMatches.length} color="#22c55e" glow="glow-green"
-            icon={<Zap size={20} />} />
+      {/* Workspace tabs — the dashboard is four jobs, not nine panels */}
+      <div className="sticky top-0 z-20 border-b border-dark-850 bg-dark-950/85 backdrop-blur-md">
+        <div className="px-6 max-w-7xl mx-auto flex items-center gap-1 overflow-x-auto overflow-y-hidden">
+          {TABS.filter((t) => !t.adminOnly || isSuperAdmin).map(({ id, label, icon: Icon }) => {
+            const count = tabCounts[id]
+            const on = tab === id
+            return (
+              <button key={id} onClick={() => setTab(id)}
+                aria-current={on ? 'page' : undefined}
+                className={clsx(
+                  'relative flex items-center gap-2 px-4 py-3.5 text-sm font-semibold whitespace-nowrap transition-colors',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50 rounded-t-lg',
+                  on ? 'text-white' : 'text-dark-500 hover:text-dark-200',
+                )}>
+                <Icon size={15} className={on ? 'text-brand-400' : ''} />
+                {label}
+                {count !== undefined && count > 0 && (
+                  <span className={clsx('px-1.5 py-0.5 rounded-full text-[10px] font-bold tabular-nums',
+                    on ? 'bg-brand-500/15 text-brand-300' : 'bg-dark-850 text-dark-500')}>{count}</span>
+                )}
+                {on && <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-brand-500" />}
+              </button>
+            )
+          })}
         </div>
+      </div>
 
-        {/* Network panel */}
-        {serverInfo && (
-          <div className="card-hi p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="h-2 w-2 rounded-full bg-live animate-pulse" />
-              <h2 className="text-sm font-bold text-dark-100 uppercase tracking-wider">Local Network</h2>
-              <span className="ml-auto text-xs text-dark-600">Scorer devices connect here</span>
-            </div>
-            <div className="flex flex-col sm:flex-row gap-5">
-              {/* URLs */}
-              <div className="flex-1 space-y-3">
-                {[
-                  { label: 'Scorer Connect URL', url: serverInfo.connect_url, accent: '#22c55e' },
-                  { label: 'Display URL',        url: serverInfo.display_url,  accent: '#6366f1' },
-                ].map(({ label, url, accent }) => (
-                  <div key={label}>
-                    <p className="text-xs font-semibold text-dark-500 uppercase tracking-wider mb-1.5">{label}</p>
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 px-3 py-2 rounded-xl bg-dark-900 border border-dark-750 flex items-center gap-2 min-w-0">
-                        <span className="h-1.5 w-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: accent }} />
-                        <code className="text-xs truncate" style={{ color: accent }}>{url}</code>
-                      </div>
-                      <button onClick={() => copyURL(url)}
-                        className="p-2 rounded-lg text-dark-500 hover:text-dark-100 hover:bg-dark-700 transition-colors flex-shrink-0">
-                        {copied ? <Check size={14} className="text-live" /> : <Copy size={14} />}
+      <div className="px-6 py-7 max-w-7xl mx-auto">
+
+        {/* ── Matches: the operating surface ── */}
+        {tab === 'matches' && (
+          <div className="space-y-7">
+            {activeMatches.length > 0 && (
+              <section>
+                <SectionHead icon={<Zap size={15} className="text-live" />} title="Live now"
+                  count={activeMatches.length} accent />
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {activeMatches.map((m) => (
+                    <ActiveMatchCard key={m.id} match={m}
+                      onQR={() => { fetchServerInfo(); setQrMatch(m) }}
+                      onStop={() => handleStopMatch(m)}
+                      onDelete={() => setConfirmDelete(m)}
+                      isAdmin={isSuperAdmin}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+
+            <section>
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-3.5">
+                <SectionHead icon={<TrendingUp size={15} className="text-dark-500" />}
+                  title="Match list" count={visibleMatches.length} bare />
+                <div className="flex items-center gap-1 p-0.5 rounded-xl bg-dark-900 border border-dark-800">
+                  {MATCH_FILTERS.map(({ id, label }) => (
+                    <button key={id} onClick={() => setMatchFilter(id)}
+                      className={clsx('px-3 py-1.5 rounded-[10px] text-xs font-bold transition-colors',
+                        matchFilter === id ? 'bg-dark-800 text-white' : 'text-dark-500 hover:text-dark-200')}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="card-hi overflow-hidden">
+                {visibleMatches.length === 0 ? (
+                  <div className="py-14 px-6 flex flex-col items-center text-center gap-1.5">
+                    <div className="p-3 rounded-2xl bg-dark-900 mb-1"><Zap size={20} className="text-dark-600" /></div>
+                    <p className="text-sm font-semibold text-dark-300">
+                      {matchFilter === 'finished' ? 'No finished matches yet' : 'No matches scheduled'}
+                    </p>
+                    <p className="text-xs text-dark-600 max-w-xs">
+                      {matchFilter === 'finished'
+                        ? 'Completed and cancelled matches collect here.'
+                        : 'Create a match to generate a scorer code and put it on the display.'}
+                    </p>
+                    {isSuperAdmin && matchFilter !== 'finished' && (
+                      <button onClick={openMatchModal}
+                        className="mt-3 flex items-center gap-2 px-3.5 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold transition-colors">
+                        <Plus size={13} /> New Match
                       </button>
-                    </div>
+                    )}
                   </div>
-                ))}
-                <p className="text-xs text-dark-700 pt-1">
-                  Scorers open the connect URL on their device, enter the 4-digit match code, and start scoring immediately.
+                ) : (
+                  <div className="divide-y divide-dark-850">{visibleMatches.map(renderMatchRow)}</div>
+                )}
+              </div>
+            </section>
+          </div>
+        )}
+
+        {/* ── Display: one job, previously split across two panels ── */}
+        {tab === 'display' && isSuperAdmin && (
+          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-6 items-start">
+            <div className="card-hi p-5"><DisplayControl matches={matches} /></div>
+            <div className="card-hi p-5"><DisplayAssetsControl /></div>
+          </div>
+        )}
+
+        {/* ── Teams: full width, the roster editor needs the room ── */}
+        {tab === 'teams' && isSuperAdmin && (
+          <div className="card-hi p-5"><TeamsControl /></div>
+        )}
+
+        {/* ── Setup: touched once per venue ── */}
+        {tab === 'setup' && isSuperAdmin && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+            <div className="space-y-6">
+              <div className="card-hi p-5">
+                <SectionHead icon={<Plus size={15} className="text-brand-400" />} title="Create" bare />
+                <div className="space-y-2.5">
+                  {[
+                    { label: 'New Tournament', desc: 'Groups courts and matches', onClick: () => setTourModal(true), color: '#6366f1' },
+                    { label: 'New Court',      desc: 'A place matches are played', onClick: () => setCourtModal(true), color: '#38bdf8' },
+                  ].map(({ label, desc, onClick, color }) => (
+                    <button key={label} onClick={onClick}
+                      className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl bg-dark-900 border border-dark-750
+                                 hover:border-dark-700 hover:bg-dark-850 transition-all text-left group">
+                      <div className="p-2 rounded-xl" style={{ backgroundColor: `${color}15` }}>
+                        <Plus size={16} style={{ color }} />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold text-dark-100">{label}</p>
+                        <p className="text-xs text-dark-600">{desc}</p>
+                      </div>
+                      <ChevronRight size={14} className="text-dark-700 group-hover:text-dark-400 transition-colors" />
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-4 pt-3.5 border-t border-dark-850 text-xs text-dark-600">
+                  {tournaments.length} tournaments · {courts.length} courts · {matches.length} matches
                 </p>
               </div>
-            </div>
-          </div>
-        )}
 
-        {/* Active Matches */}
-        <section>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-live animate-pulse" />
-              <h2 className="text-lg font-bold text-white">Active Matches</h2>
+              {serverInfo && (
+                <div className="card-hi p-5">
+                  <SectionHead icon={<Wifi size={15} className="text-live" />} title="Local network" bare />
+                  <div className="space-y-3">
+                    {[
+                      { label: 'Scorer connect URL', url: serverInfo.connect_url, accent: '#22c55e' },
+                      { label: 'Display URL',        url: serverInfo.display_url,  accent: '#6366f1' },
+                    ].map(({ label, url, accent }) => (
+                      <div key={label}>
+                        <p className="text-xs font-semibold text-dark-500 uppercase tracking-wider mb-1.5">{label}</p>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 px-3 py-2 rounded-xl bg-dark-900 border border-dark-750 flex items-center gap-2 min-w-0">
+                            <span className="h-1.5 w-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: accent }} />
+                            <code className="text-xs truncate" style={{ color: accent }}>{url}</code>
+                          </div>
+                          <button onClick={() => copyURL(url)} title={`Copy ${label}`}
+                            className="p-2 rounded-lg text-dark-500 hover:text-dark-100 hover:bg-dark-700 transition-colors flex-shrink-0">
+                            {copied ? <Check size={14} className="text-live" /> : <Copy size={14} />}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    <p className="text-xs text-dark-600 pt-0.5">
+                      Scorers open the connect URL, enter the 4-digit match code, and start scoring.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
-            <span className="px-2 py-0.5 rounded-full bg-live/10 border border-live/20 text-live text-xs font-bold">
-              {activeMatches.length}
-            </span>
-          </div>
 
-          {activeMatches.length === 0 ? (
-            <div className="card-hi py-16 flex flex-col items-center gap-3 text-dark-600">
-              <div className="p-4 rounded-2xl bg-dark-900"><Zap size={24} className="opacity-30" /></div>
-              <p className="text-sm font-medium">No active matches right now</p>
-              <p className="text-xs text-dark-700">Start a match from the match list below</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {activeMatches.map((m) => (
-                <ActiveMatchCard key={m.id} match={m}
-                  onQR={() => { fetchServerInfo(); setQrMatch(m) }}
-                  onStop={() => handleStopMatch(m)}
-                  onDelete={() => setConfirmDelete(m)}
-                  isAdmin={isSuperAdmin}
-                />
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* Live & Upcoming Matches */}
-        <section>
-          <div className="flex items-center gap-3 mb-4">
-            <TrendingUp size={16} className="text-dark-500" />
-            <h2 className="text-lg font-bold text-white">Live &amp; Upcoming</h2>
-            <span className="text-xs font-bold text-dark-500 bg-dark-850 px-2 py-0.5 rounded-full">{openMatches.length}</span>
-          </div>
-
-          <div className="card-hi overflow-hidden">
-            {openMatches.length === 0 ? (
-              <div className="py-12 text-center text-dark-600 text-sm">No live or upcoming matches</div>
-            ) : (
-              <div className="divide-y divide-dark-850">
-                {openMatches.map(renderMatchRow)}
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* Finished Matches */}
-        {finishedMatches.length > 0 && (
-          <section>
-            <div className="flex items-center gap-3 mb-4">
-              <CheckCircle2 size={16} className="text-dark-500" />
-              <h2 className="text-lg font-bold text-white">Finished</h2>
-              <span className="text-xs font-bold text-dark-500 bg-dark-850 px-2 py-0.5 rounded-full">{finishedMatches.length}</span>
-            </div>
-            <div className="card-hi overflow-hidden opacity-90">
-              <div className="divide-y divide-dark-850">
-                {finishedMatches.map(renderMatchRow)}
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* Two-column: Display Control + Quick Create */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Display Control */}
-          {isSuperAdmin && (
-            <div className="card-hi p-5">
-              <DisplayControl matches={matches} />
-            </div>
-          )}
-
-          {/* Sponsors & Announcements library */}
-          {isSuperAdmin && (
-            <div className="card-hi p-5">
-              <DisplayAssetsControl />
-            </div>
-          )}
-
-          {/* Quick Create */}
-          {isSuperAdmin && (
-            <div className="card-hi p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <Plus size={15} className="text-brand-400" />
-                <h3 className="font-semibold text-dark-100">Quick Create</h3>
-              </div>
-              <div className="space-y-3">
-                {[
-                  { label: 'New Tournament', desc: 'Create a tournament', onClick: () => setTourModal(true), color: '#6366f1' },
-                  { label: 'New Court',      desc: 'Add a court', onClick: () => setCourtModal(true), color: '#38bdf8' },
-                ].map(({ label, desc, onClick, color }) => (
-                  <button key={label} onClick={onClick}
-                    className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl bg-dark-900 border border-dark-750
-                               hover:border-dark-700 hover:bg-dark-850 transition-all text-left group">
-                    <div className="p-2 rounded-xl" style={{ backgroundColor: `${color}15` }}>
-                      <Plus size={16} style={{ color }} />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-semibold text-dark-100">{label}</p>
-                      <p className="text-xs text-dark-600">{desc}</p>
-                    </div>
-                    <ChevronRight size={14} className="text-dark-700 group-hover:text-dark-400 transition-colors" />
-                  </button>
-                ))}
-              </div>
-              <div className="mt-3 pt-3 border-t border-dark-850 text-xs text-dark-700">
-                {tournaments.length} tournaments · {courts.length} courts · {matches.length} total matches
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Connected Devices */}
-        {isSuperAdmin && token && (
-          <div className="card-hi p-5">
-            <DeviceDashboard token={token} />
+            {token && <div className="card-hi p-5"><DeviceDashboard token={token} /></div>}
           </div>
         )}
       </div>
 
       {/* ── Modals ── */}
-      <Modal open={tourModal} onClose={() => setTourModal(false)} title="New Tournament">
+      <Modal open={tourModal} onClose={() => setTourModal(false)} title="New Tournament"
+        footer={
+          <div className="flex gap-3">
+            <button onClick={() => setTourModal(false)} className="flex-1 py-2.5 rounded-xl border border-dark-700 text-dark-300 text-sm font-medium hover:bg-dark-800 transition-colors">Cancel</button>
+            <button onClick={handleCreateTournament} disabled={saving || !tourName.trim()}
+              className="flex-1 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-sm font-bold transition-colors disabled:opacity-50">
+              {saving ? 'Creating…' : 'Create'}
+            </button>
+          </div>
+        }>
         <div className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-dark-400 uppercase tracking-wider mb-1.5">Name *</label>
@@ -583,17 +660,41 @@ export default function Dashboard() {
             <label className="block text-xs font-semibold text-dark-400 uppercase tracking-wider mb-1.5">Sport</label>
             <input value={tourSport} onChange={(e) => setTourSport(e.target.value)} className={inputCls} placeholder="Basketball, Volleyball…" />
           </div>
-          <div className="flex gap-3 pt-2">
-            <button onClick={() => setTourModal(false)} className="flex-1 py-2.5 rounded-xl border border-dark-700 text-dark-300 text-sm font-medium hover:bg-dark-800 transition-colors">Cancel</button>
-            <button onClick={handleCreateTournament} disabled={saving || !tourName.trim()}
-              className="flex-1 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-sm font-bold transition-colors disabled:opacity-50">
-              {saving ? 'Creating…' : 'Create'}
-            </button>
+
+          {/* Format decides the round structure of every match in this tournament. */}
+          <div>
+            <label className="block text-xs font-semibold text-dark-400 uppercase tracking-wider mb-2">Event Type</label>
+            <div className="grid grid-cols-3 gap-2">
+              {EVENT_FORMATS.map(({ id, label, rounds }) => {
+                const on = tourFormat === id
+                return (
+                  <button key={id} type="button" onClick={() => setTourFormat(id)}
+                    aria-pressed={on}
+                    className={clsx(
+                      'rounded-xl border px-3 py-3 text-left transition-all',
+                      on ? 'border-brand-500 bg-brand-500/10' : 'border-dark-750 bg-dark-900 hover:border-dark-700',
+                    )}>
+                    <span className={clsx('block text-sm font-bold', on ? 'text-white' : 'text-dark-200')}>{label}</span>
+                    <span className={clsx('block text-[11px] mt-0.5', on ? 'text-brand-300' : 'text-dark-500')}>{rounds}</span>
+                  </button>
+                )
+              })}
+            </div>
+            <p className="text-xs text-dark-500 mt-2">{EVENT_FORMATS.find((f) => f.id === tourFormat)!.hint}</p>
           </div>
         </div>
       </Modal>
 
-      <Modal open={courtModal} onClose={() => setCourtModal(false)} title="New Court">
+      <Modal open={courtModal} onClose={() => setCourtModal(false)} title="New Court"
+        footer={
+          <div className="flex gap-3">
+            <button onClick={() => setCourtModal(false)} className="flex-1 py-2.5 rounded-xl border border-dark-700 text-dark-300 text-sm font-medium hover:bg-dark-800 transition-colors">Cancel</button>
+            <button onClick={handleCreateCourt} disabled={saving || !courtTourId || !courtName.trim()}
+              className="flex-1 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-sm font-bold transition-colors disabled:opacity-50">
+              {saving ? 'Creating…' : 'Create'}
+            </button>
+          </div>
+        }>
         <div className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-dark-400 uppercase tracking-wider mb-1.5">Tournament *</label>
@@ -607,18 +708,52 @@ export default function Dashboard() {
             <label className="block text-xs font-semibold text-dark-400 uppercase tracking-wider mb-1.5">Court Name *</label>
             <input value={courtName} onChange={(e) => setCourtName(e.target.value)} className={inputCls} placeholder="Court A" />
           </div>
-          <div className="flex gap-3 pt-2">
-            <button onClick={() => setCourtModal(false)} className="flex-1 py-2.5 rounded-xl border border-dark-700 text-dark-300 text-sm font-medium hover:bg-dark-800 transition-colors">Cancel</button>
-            <button onClick={handleCreateCourt} disabled={saving || !courtTourId || !courtName.trim()}
-              className="flex-1 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-sm font-bold transition-colors disabled:opacity-50">
-              {saving ? 'Creating…' : 'Create'}
-            </button>
-          </div>
         </div>
       </Modal>
 
       {/* Match modal - 3 steps */}
-      <Modal open={matchModal} onClose={() => { setMatchModal(false); resetMatchForm() }} title={`New Match · Step ${matchStep} of 3`} size="xl">
+      <Modal open={matchModal} onClose={() => { setMatchModal(false); resetMatchForm() }}
+        title={`New Match · Step ${matchStep} of 3`} size="xl"
+        footer={
+          matchStep === 1 ? (
+            <div className="flex gap-3">
+              <button onClick={() => { setMatchModal(false); resetMatchForm() }} className="flex-1 py-3 rounded-xl border border-dark-700 text-dark-300 text-sm font-semibold hover:bg-dark-800 transition-colors">Cancel</button>
+              <button onClick={() => setMatchStep(2)} disabled={!matchForm.tournament_id || !matchForm.court_id || !matchForm.team_a || !matchForm.team_b}
+                className="flex-1 py-3 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-sm font-bold transition-all disabled:opacity-40 flex items-center justify-center gap-2">
+                Next <ChevronRight size={15} />
+              </button>
+            </div>
+          ) : matchStep === 2 ? (
+            <div className="flex gap-3">
+              <button onClick={() => setMatchStep(1)}
+                className="px-5 py-3 rounded-xl border border-dark-700 text-dark-300 text-sm font-semibold hover:bg-dark-800 transition-colors flex items-center gap-1.5">
+                ← Back
+              </button>
+              <button onClick={() => setMatchStep(3)}
+                className="flex-1 py-3 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-sm font-bold transition-all flex items-center justify-center gap-2"
+                disabled={!!logoUploading}>
+                Next <ChevronRight size={15} />
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-3">
+              <button onClick={() => setMatchStep(2)}
+                className="px-5 py-3 rounded-xl border border-dark-700 text-dark-300 text-sm font-semibold hover:bg-dark-800 transition-colors">
+                ← Back
+              </button>
+              <button onClick={handleCreateMatch} disabled={saving}
+                className="flex-1 min-w-[8rem] py-3 rounded-xl border border-dark-700 text-dark-400 text-sm font-semibold hover:bg-dark-800 transition-colors disabled:opacity-50">
+                {saving ? 'Creating…' : 'Skip & Create'}
+              </button>
+              <button onClick={handleCreateMatch} disabled={saving}
+                className="flex-1 min-w-[8rem] py-3 rounded-xl bg-live hover:bg-live/90 text-dark-950 text-sm font-black transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                {saving
+                  ? <><Loader2 size={15} className="animate-spin" /> Creating…</>
+                  : '✓ Create Match'}
+              </button>
+            </div>
+          )
+        }>
         {/* Step indicator */}
         <div className="flex items-center mb-6 pb-5 border-b border-dark-850">
           {(['Teams', 'Colors & Logos', 'Players'] as const).map((label, i) => (
@@ -665,24 +800,33 @@ export default function Dashboard() {
             <div>
               <p className="text-xs font-bold text-dark-600 uppercase tracking-widest mb-3">Teams</p>
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-dark-400 uppercase tracking-wider mb-2">Team A *</label>
-                  <input value={matchForm.team_a} onChange={(e) => setMatchForm(f => ({ ...f, team_a: e.target.value }))} className={inputCls} placeholder="Team Alpha" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-dark-400 uppercase tracking-wider mb-2">Team B *</label>
-                  <input value={matchForm.team_b} onChange={(e) => setMatchForm(f => ({ ...f, team_b: e.target.value }))} className={inputCls} placeholder="Team Bravo" />
-                </div>
+                {(['A', 'B'] as const).map((side) => {
+                  const nameKey = side === 'A' ? 'team_a' : 'team_b'
+                  const name    = matchForm[nameKey]
+                  const roster  = side === 'A' ? playersA : playersB
+                  const picked  = savedTeams.find((t) => t.name === name)
+                  return (
+                    <div key={side}>
+                      <label className="block text-xs font-semibold text-dark-400 uppercase tracking-wider mb-2">Team {side} *</label>
+                      {savedTeams.length > 0 && (
+                        <select value={picked?.id ?? ''} onChange={(e) => applyTeam(side, e.target.value)} className={selectCls + ' mb-2'}>
+                          <option value="">Saved team… (or type below)</option>
+                          {savedTeams.map((t) => (
+                            <option key={t.id} value={t.id}>{t.name} · {t.players.length} player{t.players.length === 1 ? '' : 's'}</option>
+                          ))}
+                        </select>
+                      )}
+                      <input value={name} onChange={(e) => setMatchForm(f => ({ ...f, [nameKey]: e.target.value }))}
+                        className={inputCls} placeholder={side === 'A' ? 'Team Alpha' : 'Team Bravo'} />
+                      {picked && (
+                        <p className="text-xs text-brand-400 mt-1.5">{roster.length} player{roster.length === 1 ? '' : 's'} loaded — edit in step 3</p>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             </div>
 
-            <div className="flex gap-3 pt-1">
-              <button onClick={() => { setMatchModal(false); resetMatchForm() }} className="flex-1 py-3 rounded-xl border border-dark-700 text-dark-300 text-sm font-semibold hover:bg-dark-800 transition-colors">Cancel</button>
-              <button onClick={() => setMatchStep(2)} disabled={!matchForm.tournament_id || !matchForm.court_id || !matchForm.team_a || !matchForm.team_b}
-                className="flex-1 py-3 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-sm font-bold transition-all disabled:opacity-40 flex items-center justify-center gap-2">
-                Next <ChevronRight size={15} />
-              </button>
-            </div>
           </div>
         )}
 
@@ -800,17 +944,6 @@ export default function Dashboard() {
               })}
             </div>
 
-            <div className="flex gap-3 pt-1">
-              <button onClick={() => setMatchStep(1)}
-                className="px-5 py-3 rounded-xl border border-dark-700 text-dark-300 text-sm font-semibold hover:bg-dark-800 transition-colors flex items-center gap-1.5">
-                ← Back
-              </button>
-              <button onClick={() => setMatchStep(3)}
-                className="flex-1 py-3 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-sm font-bold transition-all flex items-center justify-center gap-2"
-                disabled={!!logoUploading}>
-                Next <ChevronRight size={15} />
-              </button>
-            </div>
           </div>
         )}
 
@@ -874,22 +1007,6 @@ export default function Dashboard() {
               <span style={{ color: matchForm.team_b_color }}>{matchForm.team_b}: {playersB.length} players</span>
             </div>
 
-            <div className="flex gap-3 pt-1">
-              <button onClick={() => setMatchStep(2)}
-                className="px-5 py-3 rounded-xl border border-dark-700 text-dark-300 text-sm font-semibold hover:bg-dark-800 transition-colors">
-                ← Back
-              </button>
-              <button onClick={handleCreateMatch} disabled={saving}
-                className="flex-1 py-3 rounded-xl border border-dark-700 text-dark-400 text-sm font-semibold hover:bg-dark-800 transition-colors disabled:opacity-50">
-                {saving ? 'Creating…' : 'Skip & Create'}
-              </button>
-              <button onClick={handleCreateMatch} disabled={saving}
-                className="flex-1 py-3 rounded-xl bg-live hover:bg-live/90 text-dark-950 text-sm font-black transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-                {saving
-                  ? <><Loader2 size={15} className="animate-spin" /> Creating…</>
-                  : '✓ Create Match'}
-              </button>
-            </div>
           </div>
         )}
       </Modal>

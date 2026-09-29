@@ -230,11 +230,14 @@ ok "Postgres is ready"
 kill_port 8080
 step "Starting Backend (Go)"
 cd "$BACKEND"
-(go run ./cmd/server 2>&1 | while IFS= read -r line; do echo "${BOLD}${MAGENTA}[backend]${RESET} $line"; done) &
+# ponytail: build first (cold builds take minutes and blew the 15s wait below)
+log "Building backend… (first run downloads deps, can take a few minutes)"
+go build -o "$BACKEND/.bin/server" ./cmd/server || { err "Backend build failed."; exit 1; }
+("$BACKEND/.bin/server" 2>&1 | while IFS= read -r line; do echo "${BOLD}${MAGENTA}[backend]${RESET} $line"; done) &
 BACKEND_PID=$!
 
 log "Waiting for backend on :8080…"
-RETRIES=30
+RETRIES=60
 until curl -sf http://localhost:8080/health &>/dev/null; do
   RETRIES=$((RETRIES-1))
   [[ $RETRIES -le 0 ]] && { err "Backend didn't start."; cleanup; exit 1; }
@@ -243,6 +246,7 @@ done
 ok "Backend ready → http://localhost:8080"
 
 # ── 8. Frontend ───────────────────────────────────────────────────────────────
+kill_port 3000  # ponytail: else Vite silently drifts to 3001 and the banner lies
 step "Starting Frontend (Vite / React)"
 cd "$FRONTEND"
 if [[ ! -d node_modules ]]; then

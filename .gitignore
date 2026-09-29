@@ -50,3 +50,4 @@ ehthumbs.db
 *.log
 logs/
 backend/server
+backend/.bin/

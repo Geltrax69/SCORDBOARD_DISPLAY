@@ -16,15 +16,15 @@ func NewTournamentRepo(db *sql.DB) *TournamentRepo {
 
 func (r *TournamentRepo) Create(t *models.Tournament) error {
 	return r.db.QueryRow(
-		`INSERT INTO tournaments (name, sport, created_by) VALUES ($1,$2,$3)
+		`INSERT INTO tournaments (name, sport, event_type, created_by) VALUES ($1,$2,$3,$4)
 		 RETURNING id, status, created_at, updated_at`,
-		t.Name, t.Sport, t.CreatedBy,
+		t.Name, t.Sport, t.EventType, t.CreatedBy,
 	).Scan(&t.ID, &t.Status, &t.CreatedAt, &t.UpdatedAt)
 }
 
 // List returns tournaments scoped to a user. If all is true (owner), returns every tournament.
 func (r *TournamentRepo) List(userID string, all bool) ([]models.Tournament, error) {
-	q := `SELECT id, name, sport, status, created_by, created_at, updated_at FROM tournaments`
+	q := `SELECT id, name, sport, event_type, status, created_by, created_at, updated_at FROM tournaments`
 	var args []interface{}
 	if !all {
 		q += ` WHERE created_by = $1`
@@ -39,7 +39,7 @@ func (r *TournamentRepo) List(userID string, all bool) ([]models.Tournament, err
 	var ts []models.Tournament
 	for rows.Next() {
 		var t models.Tournament
-		if err := rows.Scan(&t.ID, &t.Name, &t.Sport, &t.Status, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.Sport, &t.EventType, &t.Status, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
 		}
 		ts = append(ts, t)
@@ -50,9 +50,9 @@ func (r *TournamentRepo) List(userID string, all bool) ([]models.Tournament, err
 func (r *TournamentRepo) FindByID(id string) (*models.Tournament, error) {
 	t := &models.Tournament{}
 	err := r.db.QueryRow(
-		`SELECT id, name, sport, status, created_by, created_at, updated_at FROM tournaments WHERE id = $1`,
+		`SELECT id, name, sport, event_type, status, created_by, created_at, updated_at FROM tournaments WHERE id = $1`,
 		id,
-	).Scan(&t.ID, &t.Name, &t.Sport, &t.Status, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt)
+	).Scan(&t.ID, &t.Name, &t.Sport, &t.EventType, &t.Status, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

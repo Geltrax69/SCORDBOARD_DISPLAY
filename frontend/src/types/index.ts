@@ -10,10 +10,14 @@ export interface User {
   updated_at: string
 }
 
+/** Event format — decides how many rounds a match is played over. */
+export type EventFormat = 'regu' | 'double' | 'quad'
+
 export interface Tournament {
   id: string
   name: string
   sport: string
+  event_type: EventFormat
   status: 'active' | 'completed' | 'cancelled'
   created_by: string
   created_at: string
@@ -31,6 +35,7 @@ export interface Match {
   id: string
   court_id: string
   tournament_id: string
+  event_type: EventFormat
   team_a: string
   team_b: string
   team_a_color: string
@@ -70,6 +75,16 @@ export interface MatchState {
   set_point?: 'A' | 'B'
   match_point?: 'A' | 'B'
   deuce?: boolean
+  last_set_winner?: 'A' | 'B'
+  // Rounds — sets above are scoped to the CURRENT round.
+  event_type: EventFormat
+  round_number: number
+  total_rounds: number
+  rounds_a: number
+  rounds_b: number
+  completed_rounds: [number, number][]
+  awaiting_round: boolean
+  round_point?: 'A' | 'B'
 }
 
 export type EventType =
@@ -79,6 +94,7 @@ export type EventType =
   | 'match_end'
   | 'status_change'
   | 'serve_set'
+  | 'round_start'
   | 'timer_start'
   | 'timer_pause'
   | 'timeout_start'
@@ -186,6 +202,26 @@ export interface Player {
   status: 'playing' | 'sub'
   photo_url: string
   created_at: string
+}
+
+export interface TeamPlayer {
+  id: string
+  team_id: string
+  name: string
+  jersey_number: number
+  status: 'playing' | 'sub'
+  photo_url: string
+}
+
+/** A saved roster template, reused when creating matches. */
+export interface Team {
+  id: string
+  name: string
+  color: string
+  logo_url: string
+  created_at: string
+  updated_at: string
+  players: TeamPlayer[]
 }
 
 export interface DeviceInfo {

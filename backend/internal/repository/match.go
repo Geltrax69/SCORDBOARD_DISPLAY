@@ -28,6 +28,7 @@ const matchSelectCols = `
 	COALESCE(m.team_a_logo,''), COALESCE(m.team_b_logo,''),
 	m.status, m.timer_seconds, m.timer_running, m.timer_started_at,
 	COALESCE(m.match_code,''),
+	COALESCE(m.event_type,'regu'),
 	COALESCE(m.created_by::text,''),
 	m.created_at, m.updated_at,
 	COALESCE(c.name,''), COALESCE(t.name,'')`
@@ -39,7 +40,7 @@ func scanMatch(row interface {
 		&m.ID, &m.CourtID, &m.TournamentID, &m.TeamA, &m.TeamB,
 		&m.TeamAColor, &m.TeamBColor, &m.TeamALogo, &m.TeamBLogo,
 		&m.Status, &m.TimerSeconds, &m.TimerRunning, &m.TimerStartedAt,
-		&m.MatchCode, &m.CreatedBy, &m.CreatedAt, &m.UpdatedAt,
+		&m.MatchCode, &m.EventType, &m.CreatedBy, &m.CreatedAt, &m.UpdatedAt,
 		&m.CourtName, &m.TournamentName,
 	)
 }
@@ -63,13 +64,14 @@ func (r *MatchRepo) Create(m *models.Match) error {
 		err := r.db.QueryRow(
 			`INSERT INTO matches
 			   (court_id, tournament_id, team_a, team_b, team_a_color, team_b_color,
-			    team_a_logo, team_b_logo, match_code, created_by)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-			 RETURNING id, status, timer_seconds, timer_running, match_code, created_at, updated_at`,
+			    team_a_logo, team_b_logo, match_code, event_type, created_by)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,
+			         COALESCE((SELECT event_type FROM tournaments WHERE id = $2),'regu'), $10)
+			 RETURNING id, status, timer_seconds, timer_running, match_code, event_type, created_at, updated_at`,
 			m.CourtID, m.TournamentID, m.TeamA, m.TeamB, m.TeamAColor, m.TeamBColor,
 			m.TeamALogo, m.TeamBLogo, code, createdBy,
 		).Scan(&m.ID, &m.Status, &m.TimerSeconds, &m.TimerRunning,
-			&m.MatchCode, &m.CreatedAt, &m.UpdatedAt)
+			&m.MatchCode, &m.EventType, &m.CreatedAt, &m.UpdatedAt)
 		if err == nil {
 			return nil
 		}

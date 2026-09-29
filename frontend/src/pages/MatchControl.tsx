@@ -5,7 +5,7 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 import { useMatchStore } from '@/store/matchStore'
 import { useAuthStore } from '@/store/authStore'
 import { useToastStore } from '@/store/toastStore'
-import { getMatch, listEvents, startMatch, endMatch, startTimer, pauseTimer, endTimeout, updateMatchStatus, deleteMatch, createEvent, setFirstServer } from '@/services/api'
+import { getMatch, listEvents, startMatch, endMatch, startTimer, pauseTimer, endTimeout, updateMatchStatus, deleteMatch, createEvent, setFirstServer, startRound } from '@/services/api'
 import { TimeoutModal } from '@/components/admin/TimeoutModal'
 import { SubstitutionModal } from '@/components/admin/SubstitutionModal'
 import { TakrawBall } from '@/components/common/TakrawBall'
@@ -123,6 +123,11 @@ export default function MatchControl() {
   const isPending    = m.status === 'pending'
   const isTimeout    = m.status === 'timeout'
   const isCompleted  = m.status === 'completed'
+  // Who just took the round — the last entry in the per-round set tallies.
+  const lastRound    = s.completed_rounds?.[s.completed_rounds.length - 1]
+  const roundWinnerName = lastRound
+    ? (lastRound[0] > lastRound[1] ? m.team_a : m.team_b)
+    : null
   const canScore     = isActive || isTimeout
   const anyLoading   = Object.values(btnStates).includes('loading')
 
@@ -309,6 +314,18 @@ export default function MatchControl() {
               <span className="text-2xl font-black" style={{ color: m.team_b_color }}>{m.team_b}</span>
               {isCompleted && <span className="text-xs font-bold uppercase tracking-widest text-dark-500 ml-1">sets</span>}
             </div>
+            {/* Round context — only meaningful once a match spans several rounds */}
+            {s.total_rounds > 1 && (
+              <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl border border-brand-500/25 bg-brand-500/10">
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-300">Round</span>
+                <span className="text-2xl font-black text-white tabular-nums leading-none">
+                  {s.round_number}<span className="text-dark-600 text-lg">/{s.total_rounds}</span>
+                </span>
+                <span className="text-xs font-bold text-dark-400 tabular-nums pl-1 border-l border-dark-750">
+                  {s.rounds_a}–{s.rounds_b}
+                </span>
+              </div>
+            )}
             {/* Timer */}
             <div className={clsx(
               'font-mono text-2xl font-black tabular-nums px-5 py-2.5 rounded-xl border',
@@ -331,8 +348,38 @@ export default function MatchControl() {
       </div>
 
       <div className="px-6 py-6 max-w-6xl mx-auto space-y-6">
+        {/* Between rounds: scoring is meaningless until the next round is started. */}
+        {s.awaiting_round && !isCompleted && (
+          <div className="card-hi p-6 border-brand-500/25">
+            <div className="flex flex-wrap items-center justify-between gap-5">
+              <div className="min-w-0">
+                <p className="text-[11px] font-black uppercase tracking-[0.25em] text-brand-300">
+                  Round {s.round_number} complete
+                </p>
+                <p className="text-xl font-black text-white mt-1.5">
+                  <span style={{ color: s.rounds_a > s.rounds_b ? m.team_a_color : m.team_b_color }}>
+                    {roundWinnerName ?? '—'}
+                  </span>
+                  <span className="text-dark-400 font-bold"> took the round {Math.max(s.sets_a, s.sets_b)}–{Math.min(s.sets_a, s.sets_b)}</span>
+                </p>
+                <p className="text-sm text-dark-400 mt-1">
+                  Rounds {s.rounds_a}–{s.rounds_b} · {s.total_rounds - s.round_number} to play
+                </p>
+              </div>
+              <button
+                onClick={() => fire(() => startRound(id!), 'round-start-main', {
+                  loading: `Starting round ${s.round_number + 1}…`,
+                  success: `Round ${s.round_number + 1} under way`,
+                })}
+                className="flex items-center gap-2.5 px-6 py-4 rounded-2xl bg-live hover:bg-live/90 text-dark-950 text-base font-black transition-all shadow-lg shadow-live/20">
+                <Play size={18} /> Start Round {s.round_number + 1}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Score panels */}
-        {!isCompleted && (
+        {!isCompleted && !s.awaiting_round && (
           <div className="flex gap-4 items-stretch">
             {ScorePanel({ team: 'A', name: m.team_a, color: m.team_a_color, logo: m.team_a_logo, score: s.score_a })}
             <div className="w-px bg-dark-850 self-stretch" />
@@ -370,11 +417,17 @@ export default function MatchControl() {
               onClick: () => fire(() => startMatch(id!), 'start', { loading: 'Starting match…', success: 'Match started!' }) })}
             {(isActive || isTimeout) && isSuperAdmin && ControlBtn({ variant: 'danger', icon: <Square size={15} />, label: 'End Match', btnKey: 'end',
               onClick: () => setWinnerModalOpen(true) })}
-            {isActive && !s.timer_running && ControlBtn({ variant: 'secondary', icon: <Timer size={15} />, label: 'Start Timer', btnKey: 'timer-start',
+            {s.awaiting_round && ControlBtn({ variant: 'success', icon: <Play size={15} />,
+              label: `Start Round ${s.round_number + 1}`, btnKey: 'round-start',
+              onClick: () => fire(() => startRound(id!), 'round-start', {
+                loading: `Starting round ${s.round_number + 1}…`,
+                success: `Round ${s.round_number + 1} under way`,
+              }) })}
+            {isActive && !s.awaiting_round && !s.timer_running && ControlBtn({ variant: 'secondary', icon: <Timer size={15} />, label: 'Start Timer', btnKey: 'timer-start',
               onClick: () => fire(() => startTimer(id!), 'timer-start', { loading: 'Starting timer…', success: 'Timer running' }) })}
-            {isActive && s.timer_running && ControlBtn({ variant: 'secondary', icon: <PauseCircle size={15} />, label: 'Pause Timer', btnKey: 'timer-pause',
+            {isActive && !s.awaiting_round && s.timer_running && ControlBtn({ variant: 'secondary', icon: <PauseCircle size={15} />, label: 'Pause Timer', btnKey: 'timer-pause',
               onClick: () => fire(() => pauseTimer(id!), 'timer-pause', { loading: 'Pausing timer…', success: 'Timer paused' }) })}
-            {isActive && (
+            {isActive && !s.awaiting_round && (
               <>
                 {ControlBtn({ variant: 'secondary', icon: <AlertTriangle size={15} />, label: 'Timeout', btnKey: 'timeout-open',
                   onClick: () => setTimeoutOpen(true) })}

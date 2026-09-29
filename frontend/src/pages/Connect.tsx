@@ -349,7 +349,7 @@ function ScorerPanel({ match: initialMatch, token: initialToken, onDisconnect }:
       <div className="h-px bg-[#1e3450] mx-4" />
 
       {/* Score buttons — rally scoring: one point per rally */}
-      {active && !ended && (
+      {active && !ended && !state?.awaiting_round && (
         <div className="flex gap-3 px-4 mt-4">
           <div className="flex-1">
             <ScoreBtn label="+1" color={match.team_a_color}
@@ -366,7 +366,7 @@ function ScorerPanel({ match: initialMatch, token: initialToken, onDisconnect }:
       )}
 
       {/* Remove last point */}
-      {active && !ended && (
+      {active && !ended && !state?.awaiting_round && (
         <div className="flex gap-3 px-4 mt-2">
           <button
             onClick={() => fire('rem_a', 'score_remove', { team: 'A', points: 1 })}
@@ -389,7 +389,7 @@ function ScorerPanel({ match: initialMatch, token: initialToken, onDisconnect }:
       <div className="px-4 mt-4 space-y-2">
 
         {/* Timer controls — only when active (not timeout) */}
-        {status === 'active' && (
+        {status === 'active' && !state?.awaiting_round && (
           <button
             onClick={() => fire('timer', running ? 'timer_pause' : 'timer_start')}
             disabled={!!loading}
@@ -455,8 +455,32 @@ function ScorerPanel({ match: initialMatch, token: initialToken, onDisconnect }:
           </button>
         )}
 
+        {/* Round banked — the scorer's one job is to start the next one. */}
+        {state?.awaiting_round && !ended && (
+          <div className="rounded-2xl border-2 p-4 text-center"
+            style={{ borderColor: 'rgba(34,197,94,0.35)', backgroundColor: 'rgba(34,197,94,0.08)' }}>
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-400">
+              Round {state.round_number} complete
+            </p>
+            <p className="text-2xl font-black text-white mt-1.5">
+              {state.rounds_a}<span className="text-white/30 px-1.5">–</span>{state.rounds_b}
+            </p>
+            <p className="text-[11px] font-bold uppercase tracking-widest text-white/40 mt-0.5">rounds won</p>
+            <button
+              onClick={() => fire('round', 'round_start')}
+              disabled={!!loading}
+              className="w-full mt-4 flex items-center justify-center gap-2 py-4 rounded-xl text-base font-black transition-all active:scale-95 disabled:opacity-50"
+              style={{ backgroundColor: '#22c55e', color: '#04140a' }}
+            >
+              {loading === 'round'
+                ? <Loader size={18} className="animate-spin" />
+                : <><Play size={18} /> Start Round {state.round_number + 1}</>}
+            </button>
+          </div>
+        )}
+
         {/* Timeout controls */}
-        {status === 'active' && (
+        {status === 'active' && !state?.awaiting_round && (
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => fire('to_a', 'timeout_start', { team: 'A', duration: 60, reason: '' })}
@@ -486,7 +510,7 @@ function ScorerPanel({ match: initialMatch, token: initialToken, onDisconnect }:
         )}
 
         {/* Substitution button */}
-        {status === 'active' && (
+        {status === 'active' && !state?.awaiting_round && (
           <button
             onClick={() => setSubOpen(true)}
             disabled={!!loading}

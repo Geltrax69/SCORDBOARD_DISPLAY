@@ -29,6 +29,7 @@ func (h *TournamentHandler) Create(c *gin.Context) {
 	t := &models.Tournament{
 		Name:      req.Name,
 		Sport:     req.Sport,
+		EventType: models.ValidEventType(req.EventType),
 		CreatedBy: auth.GetUserID(c),
 	}
 	if err := h.repo.Create(t); err != nil {

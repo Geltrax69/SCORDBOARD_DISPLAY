@@ -29,6 +29,7 @@ type Tournament struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
 	Sport     string    `json:"sport"`
+	EventType string    `json:"event_type"` // regu | double | quad
 	Status    string    `json:"status"`
 	CreatedBy string    `json:"created_by"`
 	CreatedAt time.Time `json:"created_at"`
@@ -52,6 +53,7 @@ type Match struct {
 	TeamBColor     string     `json:"team_b_color"`
 	TeamALogo      string     `json:"team_a_logo"`
 	TeamBLogo      string     `json:"team_b_logo"`
+	EventType      string     `json:"event_type"`
 	MatchCode      string     `json:"match_code"`
 	Status         string     `json:"status"`
 	TimerSeconds   int        `json:"timer_seconds"`
@@ -88,6 +90,34 @@ type PlayerInput struct {
 	PhotoURL     string `json:"photo_url"`
 }
 
+// Team is a saved roster template, reused across matches.
+type Team struct {
+	ID        string       `json:"id"`
+	Name      string       `json:"name"`
+	Color     string       `json:"color"`
+	LogoURL   string       `json:"logo_url"`
+	CreatedBy string       `json:"created_by"`
+	CreatedAt time.Time    `json:"created_at"`
+	UpdatedAt time.Time    `json:"updated_at"`
+	Players   []TeamPlayer `json:"players"`
+}
+
+type TeamPlayer struct {
+	ID           string `json:"id"`
+	TeamID       string `json:"team_id"`
+	Name         string `json:"name"`
+	JerseyNumber int    `json:"jersey_number"`
+	Status       string `json:"status"`
+	PhotoURL     string `json:"photo_url"`
+}
+
+type TeamRequest struct {
+	Name    string        `json:"name" binding:"required"`
+	Color   string        `json:"color"`
+	LogoURL string        `json:"logo_url"`
+	Players []PlayerInput `json:"players"`
+}
+
 type Event struct {
 	ID        string          `json:"id"`
 	MatchID   string          `json:"match_id"`
@@ -105,26 +135,48 @@ type Event struct {
 
 // Event type constants
 const (
-	EventScoreUpdate   = "score_update"
-	EventScoreRemove   = "score_remove"
-	EventMatchStart    = "match_start"
-	EventMatchEnd      = "match_end"
-	EventTimerStart    = "timer_start"
-	EventTimerPause    = "timer_pause"
-	EventTimeoutStart  = "timeout_start"
-	EventTimeoutEnd    = "timeout_end"
-	EventSubstitution  = "substitution"
-	EventAnnouncement  = "announcement"
-	EventDisplayLayout = "display_layout_change"
-	EventSponsorShow   = "sponsor_show"
+	EventScoreUpdate       = "score_update"
+	EventScoreRemove       = "score_remove"
+	EventMatchStart        = "match_start"
+	EventMatchEnd          = "match_end"
+	EventTimerStart        = "timer_start"
+	EventTimerPause        = "timer_pause"
+	EventTimeoutStart      = "timeout_start"
+	EventTimeoutEnd        = "timeout_end"
+	EventSubstitution      = "substitution"
+	EventAnnouncement      = "announcement"
+	EventDisplayLayout     = "display_layout_change"
+	EventSponsorShow       = "sponsor_show"
 	EventDisplayBackground = "display_background" // persistent full-screen bg image
 	EventDisplayStyle      = "display_style"      // scorecard style: classic | cards
-	EventServeSet      = "serve_set" // referee sets who serves first (toss)
+	EventServeSet          = "serve_set"          // referee sets who serves first (toss)
+	EventRoundStart        = "round_start"        // controller starts the next round
 )
 
 // All sets play to 15 (cap 17). deuceAt (14) is the score at which serve and the
 // win condition switch to "win by 2 / first to cap": at 14-14 it's deuce and the
 // first team to 17 wins.
+// Event formats. A round is always best-of-3 sets; the format decides how many
+// rounds make a match.
+const (
+	EventTypeRegu   = "regu"
+	EventTypeDouble = "double"
+	EventTypeQuad   = "quad"
+)
+
+// roundsFor returns how many rounds the format schedules, and whether a decider
+// round is added when the scheduled rounds end level.
+func roundsFor(eventType string) (scheduled int, decider bool) {
+	switch eventType {
+	case EventTypeDouble:
+		return 2, true // 2 rounds, +1 decider only if 1–1
+	case EventTypeQuad:
+		return 3, false // always play all 3; winner leads on rounds
+	default:
+		return 1, false // regu — a single round settles it
+	}
+}
+
 func setLimits(setIdx int) (target, capPts, deuceAt int) {
 	return 15, 17, 14
 }
@@ -193,29 +245,53 @@ type DisplayLayoutPayload struct {
 }
 
 type MatchState struct {
-	ScoreA         int             `json:"score_a"` // points in the CURRENT set
-	ScoreB         int             `json:"score_b"`
-	Status         string          `json:"status"`
-	TimerSeconds   int             `json:"timer_seconds"`
-	TimerRunning   bool            `json:"timer_running"`
-	CurrentTimeout *TimeoutPayload `json:"current_timeout,omitempty"`
-	TimeoutRemaining int           `json:"timeout_remaining,omitempty"` // secs left in the current timeout
-	BreakRemaining   int           `json:"break_remaining,omitempty"`   // secs left in the court-change break
-	Winner         string          `json:"winner,omitempty"`
+	ScoreA           int             `json:"score_a"` // points in the CURRENT set
+	ScoreB           int             `json:"score_b"`
+	Status           string          `json:"status"`
+	TimerSeconds     int             `json:"timer_seconds"`
+	TimerRunning     bool            `json:"timer_running"`
+	CurrentTimeout   *TimeoutPayload `json:"current_timeout,omitempty"`
+	TimeoutRemaining int             `json:"timeout_remaining,omitempty"` // secs left in the current timeout
+	BreakRemaining   int             `json:"break_remaining,omitempty"`   // secs left in the court-change break
+	Winner           string          `json:"winner,omitempty"`
 
 	// Sepak takraw: best-of-3 sets, rally scoring, serve rotation.
-	SetsA         int        `json:"sets_a"`         // sets won by A
-	SetsB         int        `json:"sets_b"`         // sets won by B
-	SetNumber     int        `json:"set_number"`     // current set, 1-based
-	CompletedSets [][2]int   `json:"completed_sets"` // finished set scores [a,b]
-	Serving       string     `json:"serving"`        // "A" | "B" — who serves the next rally
-	SetPoint      string     `json:"set_point,omitempty"`   // team one point from winning the set
-	MatchPoint    string     `json:"match_point,omitempty"` // team one point from winning the match
-	Deuce         bool       `json:"deuce,omitempty"`       // both teams at deuceAt+ ("all point", win by 2 / first to cap)
+	SetsA         int      `json:"sets_a"`                    // sets won by A
+	SetsB         int      `json:"sets_b"`                    // sets won by B
+	SetNumber     int      `json:"set_number"`                // current set, 1-based
+	CompletedSets [][2]int `json:"completed_sets"`            // finished set scores [a,b]
+	Serving       string   `json:"serving"`                   // "A" | "B" — who serves the next rally
+	SetPoint      string   `json:"set_point,omitempty"`       // team one point from winning the set
+	MatchPoint    string   `json:"match_point,omitempty"`     // team one point from winning the match
+	Deuce         bool     `json:"deuce,omitempty"`           // both teams at deuceAt+ ("all point", win by 2 / first to cap)
+	LastSetWinner string   `json:"last_set_winner,omitempty"` // who took the set that just ended (court-change card)
+
+	// Rounds — regu is one round, double/quad stack several. Sets above are
+	// scoped to the CURRENT round and reset when the next one starts.
+	EventType       string   `json:"event_type"`            // regu | double | quad
+	RoundNumber     int      `json:"round_number"`          // current round, 1-based
+	TotalRounds     int      `json:"total_rounds"`          // rounds scheduled (grows to 3 on a double decider)
+	RoundsA         int      `json:"rounds_a"`              // rounds won by A
+	RoundsB         int      `json:"rounds_b"`              // rounds won by B
+	CompletedRounds [][2]int `json:"completed_rounds"`      // per-round set tallies [a,b]
+	AwaitingRound   bool     `json:"awaiting_round"`        // round done — waiting for the controller to start the next
+	RoundPoint      string   `json:"round_point,omitempty"` // team one point from taking the round
 }
 
+// CalculateState derives a regu (single-round) match. Use CalculateStateFor to
+// evaluate a double/quad match, which stacks several rounds.
 func CalculateState(events []Event) MatchState {
-	state := MatchState{Status: "pending"}
+	return CalculateStateFor(events, EventTypeRegu)
+}
+
+func CalculateStateFor(events []Event, eventType string) MatchState {
+	scheduledRounds, allowsDecider := roundsFor(eventType)
+	state := MatchState{
+		Status:      "pending",
+		EventType:   eventType,
+		RoundNumber: 1,
+		TotalRounds: scheduledRounds,
+	}
 
 	// Authoritative timer: derive elapsed seconds from event timestamps so every
 	// client (display, phone, admin) sees the same clock without it resetting on
@@ -256,20 +332,44 @@ func CalculateState(events []Event) MatchState {
 		state.CompletedSets = append(state.CompletedSets, [2]int{a, b})
 		if a > b {
 			state.SetsA++
+			state.LastSetWinner = "A"
 		} else {
 			state.SetsB++
+			state.LastSetWinner = "B"
 		}
 		state.ScoreA, state.ScoreB = 0, 0
+
+		// Two sets takes the ROUND — not necessarily the match.
 		if state.SetsA == 2 || state.SetsB == 2 {
-			matchOver = true
-		} else {
-			setIdx++
-			// Court change: pause the clock for the 2-minute break.
+			state.CompletedRounds = append(state.CompletedRounds, [2]int{state.SetsA, state.SetsB})
+			if state.SetsA > state.SetsB {
+				state.RoundsA++
+			} else {
+				state.RoundsB++
+			}
+			// A double level after its scheduled rounds gets one decider round.
+			if allowsDecider && len(state.CompletedRounds) == scheduledRounds && state.RoundsA == state.RoundsB {
+				state.TotalRounds = scheduledRounds + 1
+			}
+			if len(state.CompletedRounds) >= state.TotalRounds {
+				matchOver = true
+				state.TimerRunning = false
+				stopTimer(at)
+				return
+			}
+			// More rounds to play: hold here until the controller starts the next.
+			state.AwaitingRound = true
 			state.TimerRunning = false
 			stopTimer(at)
-			bs := at
-			breakStart = &bs
+			return
 		}
+
+		setIdx++
+		// Court change: pause the clock for the 2-minute break.
+		state.TimerRunning = false
+		stopTimer(at)
+		bs := at
+		breakStart = &bs
 	}
 
 	for _, e := range events {
@@ -348,8 +448,8 @@ func CalculateState(events []Event) MatchState {
 			if err := json.Unmarshal(e.Payload, &p); err == nil {
 				state.CurrentTimeout = &p
 				state.Status = "timeout"
-				state.TimerRunning = false
-				stopTimer(e.CreatedAt)
+				// The match clock keeps running through a timeout — only a court
+				// change stops it. Timeout is shown as an overlay, not a pause.
 				ts := e.CreatedAt
 				toStart = &ts
 				toDur = p.Duration
@@ -361,11 +461,25 @@ func CalculateState(events []Event) MatchState {
 			state.CurrentTimeout = nil
 			state.Status = "active"
 			toStart = nil
-			// Timeout over → clock auto-resumes (play restarts immediately).
-			state.TimerRunning = true
-			if lastStart == nil {
-				t := e.CreatedAt
-				lastStart = &t
+			// Clock was never stopped, so leave it exactly as it is — forcing it
+			// back on here would override a court-change break or a manual pause.
+		case EventRoundStart:
+			// Controller advances to the next round: sets reset, the round counter
+			// moves on, and the clock starts for the opening rally.
+			if state.AwaitingRound {
+				state.AwaitingRound = false
+				state.RoundNumber++
+				state.SetsA, state.SetsB = 0, 0
+				state.CompletedSets = nil
+				state.ScoreA, state.ScoreB = 0, 0
+				state.LastSetWinner = ""
+				setIdx = 0
+				breakStart = nil
+				state.TimerRunning = true
+				if lastStart == nil {
+					t := e.CreatedAt
+					lastStart = &t
+				}
 			}
 		case EventSubstitution:
 			// A substitution stops the clock; referee resumes when play restarts.
@@ -381,10 +495,7 @@ func CalculateState(events []Event) MatchState {
 		if time.Now().After(end) {
 			state.CurrentTimeout = nil
 			state.Status = "active"
-			state.TimerRunning = true
-			if lastStart == nil {
-				lastStart = &end
-			}
+			// Clock untouched: a timeout never paused it.
 		} else {
 			state.TimeoutRemaining = int(time.Until(end).Seconds()) + 1
 		}
@@ -416,15 +527,19 @@ func CalculateState(events []Event) MatchState {
 		state.CompletedSets = [][2]int{}
 	}
 
-	// Match auto-completes when a team wins 2 sets (unless an explicit match_end
-	// already set the status/winner above).
+	// Match auto-completes once every scheduled round is played (unless an
+	// explicit match_end already set the status/winner above). The winner leads
+	// on ROUNDS; a quad played out 2–1 still goes to the team on 2.
 	if matchOver && state.Status != "completed" {
 		state.Status = "completed"
 		state.TimerRunning = false
-		if state.SetsA > state.SetsB {
+		switch {
+		case state.RoundsA > state.RoundsB:
 			state.Winner = "A"
-		} else {
+		case state.RoundsB > state.RoundsA:
 			state.Winner = "B"
+		default:
+			state.Winner = "" // level on rounds with no decider left — a draw
 		}
 	}
 
@@ -444,22 +559,37 @@ func CalculateState(events []Event) MatchState {
 	total := state.ScoreA + state.ScoreB
 	state.Serving = flip(setServer, total)
 
-	// Set point / match point: a team is at set point if one more point wins the
-	// current set; it's also match point if winning that set wins the match.
-	if !matchOver && state.Status != "completed" {
+	// Set point → round point → match point. One more point may win the set; if
+	// that set also takes the round it's round point; and if that round settles
+	// the match (no rival can still catch up) it's match point too.
+	if !matchOver && !state.AwaitingRound && state.Status != "completed" {
 		target, capPts, deuceAt := setLimits(setIdx)
 		if state.ScoreA >= deuceAt && state.ScoreB >= deuceAt {
 			state.Deuce = true
 		}
+		// decisive reports whether taking this round ends the match for that team.
+		decisive := func(roundsSelf, roundsOpp int) bool {
+			remaining := state.TotalRounds - (len(state.CompletedRounds) + 1)
+			if remaining < 0 {
+				remaining = 0
+			}
+			return roundsSelf+1 > roundsOpp+remaining
+		}
 		if setWon(state.ScoreA+1, state.ScoreB, target, capPts) {
 			state.SetPoint = "A"
 			if state.SetsA == 1 {
-				state.MatchPoint = "A"
+				state.RoundPoint = "A"
+				if decisive(state.RoundsA, state.RoundsB) {
+					state.MatchPoint = "A"
+				}
 			}
 		} else if setWon(state.ScoreB+1, state.ScoreA, target, capPts) {
 			state.SetPoint = "B"
 			if state.SetsB == 1 {
-				state.MatchPoint = "B"
+				state.RoundPoint = "B"
+				if decisive(state.RoundsB, state.RoundsA) {
+					state.MatchPoint = "B"
+				}
 			}
 		}
 	}
@@ -527,8 +657,19 @@ type UpdateUserRequest struct {
 }
 
 type CreateTournamentRequest struct {
-	Name  string `json:"name" binding:"required"`
-	Sport string `json:"sport"`
+	Name      string `json:"name" binding:"required"`
+	Sport     string `json:"sport"`
+	EventType string `json:"event_type"` // regu (default) | double | quad
+}
+
+// ValidEventType normalises an event format, falling back to regu.
+func ValidEventType(t string) string {
+	switch t {
+	case EventTypeDouble, EventTypeQuad:
+		return t
+	default:
+		return EventTypeRegu
+	}
 }
 
 type CreateCourtRequest struct {

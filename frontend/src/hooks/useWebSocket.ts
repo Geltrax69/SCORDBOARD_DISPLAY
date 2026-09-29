@@ -48,6 +48,7 @@ function handleMessage(
     case 'match_end':
     case 'status_change':
     case 'serve_set':
+    case 'round_start':
     case 'timer_start':
     case 'timer_pause':
     case 'timeout_end': {

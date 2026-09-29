@@ -42,13 +42,13 @@ func main() {
 	os.MkdirAll(uploadDir+"/players", 0755)
 
 	// Repositories
-	userRepo       := repository.NewUserRepo(database)
+	userRepo := repository.NewUserRepo(database)
 	tournamentRepo := repository.NewTournamentRepo(database)
-	courtRepo      := repository.NewCourtRepo(database)
-	matchRepo      := repository.NewMatchRepo(database)
-	eventRepo      := repository.NewEventRepo(database)
-	playerRepo     := repository.NewPlayerRepo(database)
-	assetRepo      := repository.NewDisplayAssetRepo(database)
+	courtRepo := repository.NewCourtRepo(database)
+	matchRepo := repository.NewMatchRepo(database)
+	eventRepo := repository.NewEventRepo(database)
+	playerRepo := repository.NewPlayerRepo(database)
+	assetRepo := repository.NewDisplayAssetRepo(database)
 
 	// WebSocket hub
 	hub := ws.NewHub()
@@ -68,16 +68,17 @@ func main() {
 	log.Printf("[network] Display URL : %s", serverInfo.DisplayURL)
 
 	// Services & handlers
-	matchSvc  := services.NewMatchService(matchRepo, eventRepo, userRepo, hub)
-	authH     := handlers.NewAuthHandler(userRepo, cfg.JWTSecret)
-	tourH     := handlers.NewTournamentHandler(tournamentRepo)
-	courtH    := handlers.NewCourtHandler(courtRepo, userRepo)
-	matchH    := handlers.NewMatchHandler(matchRepo, playerRepo, matchSvc)
-	eventH    := handlers.NewEventHandler(eventRepo, matchRepo, userRepo, matchSvc)
-	wsH       := handlers.NewWebSocketHandler(hub, matchRepo)
-	deviceH   := handlers.NewDeviceHandler(hub, matchRepo, cfg.JWTSecret, serverInfo, database)
-	uploadH   := handlers.NewUploadHandler(uploadDir, "/uploads")
-	assetH    := handlers.NewAssetHandler(assetRepo, hub)
+	matchSvc := services.NewMatchService(matchRepo, eventRepo, userRepo, hub)
+	authH := handlers.NewAuthHandler(userRepo, cfg.JWTSecret)
+	tourH := handlers.NewTournamentHandler(tournamentRepo)
+	courtH := handlers.NewCourtHandler(courtRepo, userRepo)
+	matchH := handlers.NewMatchHandler(matchRepo, playerRepo, matchSvc)
+	eventH := handlers.NewEventHandler(eventRepo, matchRepo, userRepo, matchSvc)
+	wsH := handlers.NewWebSocketHandler(hub, matchRepo)
+	deviceH := handlers.NewDeviceHandler(hub, matchRepo, cfg.JWTSecret, serverInfo, database)
+	uploadH := handlers.NewUploadHandler(uploadDir, "/uploads")
+	assetH := handlers.NewAssetHandler(assetRepo, hub)
+	teamH := handlers.NewTeamHandler(repository.NewTeamRepo(database))
 
 	if cfg.Environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
@@ -150,6 +151,11 @@ func main() {
 				admin.POST("/display/background", deviceH.SetBackground)
 				admin.POST("/display/style", deviceH.SetStyle)
 
+				// Saved team rosters — pick a team when creating a match
+				admin.POST("/teams", teamH.Create)
+				admin.PUT("/teams/:id", teamH.Update)
+				admin.DELETE("/teams/:id", teamH.Delete)
+
 				// Sponsor / announcement library — build once, push with one click
 				admin.POST("/display-assets", assetH.Create)
 				admin.DELETE("/display-assets/:id", assetH.Delete)
@@ -166,6 +172,7 @@ func main() {
 			secured.GET("/matches/:id/events", eventH.List)
 			secured.GET("/matches/:id/players", matchH.GetPlayers)
 			secured.GET("/display-assets", assetH.List)
+			secured.GET("/teams", teamH.List)
 
 			secured.POST("/matches/:id/events",
 				auth.RequireRole("super_admin", "scorer"),

@@ -87,7 +87,7 @@ function PlayerRow({ player, color, index, token, onUpdate, onRemove }: PlayerRo
 
   return (
     <div
-      className="relative flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all group"
+      className="relative flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5 rounded-xl border transition-all group"
       style={{ backgroundColor: `${color}06`, borderColor: `${color}20` }}
     >
       {/* Photo avatar — click to upload */}
@@ -126,7 +126,7 @@ function PlayerRow({ player, color, index, token, onUpdate, onRemove }: PlayerRo
         value={player.name}
         onChange={(e) => onUpdate('name', e.target.value)}
         placeholder={`Player ${index + 1}`}
-        className="flex-1 min-w-0 px-3 py-1.5 bg-dark-850 border border-dark-700 rounded-lg text-sm text-dark-100
+        className="order-last sm:order-none basis-full sm:basis-auto sm:flex-1 min-w-0 px-3 py-1.5 bg-dark-850 border border-dark-700 rounded-lg text-sm text-dark-100
                    focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30
                    placeholder-dark-600"
       />
@@ -151,7 +151,10 @@ function PlayerRow({ player, color, index, token, onUpdate, onRemove }: PlayerRo
       {/* Remove */}
       <button
         onClick={onRemove}
-        className="flex-shrink-0 p-1 rounded-lg text-dark-700 hover:text-danger hover:bg-danger/10 transition-all opacity-0 group-hover:opacity-100"
+        type="button"
+        aria-label={`Remove ${player.name || `player ${index + 1}`}`}
+        className="flex-shrink-0 ml-auto sm:ml-0 p-1.5 rounded-lg text-dark-500 hover:text-danger hover:bg-danger/10 transition-all
+                   sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
       >
         <X size={14} />
       </button>
@@ -197,10 +200,10 @@ export function PlayersForm({ teamName, teamColor, players, onChange, token, max
             </span>
           )}
           {players.length === 0 && (
-            <span className="text-dark-600">No players added yet</span>
+            <span className="text-dark-400">No players added yet</span>
           )}
         </div>
-        <span className="text-dark-600 font-medium">{players.length} / {maxPlayers}</span>
+        <span className="text-dark-400 font-medium">{players.length} / {maxPlayers}</span>
       </div>
 
       {/* Player rows */}

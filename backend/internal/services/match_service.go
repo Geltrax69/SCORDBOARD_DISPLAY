@@ -94,12 +94,11 @@ func (s *MatchService) broadcastMatchUpdate(matchID string, ev *models.Event) {
 	if err != nil {
 		return
 	}
-	state := models.CalculateState(events)
-
 	match, err := s.matchRepo.FindByID(matchID)
 	if err != nil || match == nil {
 		return
 	}
+	state := models.CalculateStateFor(events, match.EventType)
 	match.ScoreA = state.ScoreA
 	match.ScoreB = state.ScoreB
 	// Persist the live score so the dashboard list (which reads the match row,
@@ -114,9 +113,9 @@ func (s *MatchService) broadcastMatchUpdate(matchID string, ev *models.Event) {
 	}
 
 	type broadcastPayload struct {
-		Match  *models.Match  `json:"match"`
-		Event  *models.Event  `json:"event"`
-		State  models.MatchState `json:"state"`
+		Match *models.Match     `json:"match"`
+		Event *models.Event     `json:"event"`
+		State models.MatchState `json:"state"`
 	}
 
 	payloadBytes, _ := json.Marshal(broadcastPayload{
@@ -145,7 +144,7 @@ func (s *MatchService) GetMatchWithState(matchID string) (*models.Match, *models
 	if err != nil {
 		return nil, nil, err
 	}
-	state := models.CalculateState(events)
+	state := models.CalculateStateFor(events, match.EventType)
 	match.ScoreA = state.ScoreA
 	match.ScoreB = state.ScoreB
 	return match, &state, nil
@@ -190,12 +189,12 @@ func (s *MatchService) BroadcastStatusChange(matchID, status string) {
 		return
 	}
 	events, _ := s.eventRepo.ListByMatch(matchID)
-	state := models.CalculateState(events)
+	state := models.CalculateStateFor(events, match.EventType)
 	state.Status = status
 
 	type payload struct {
-		Match *models.Match      `json:"match"`
-		State models.MatchState  `json:"state"`
+		Match *models.Match     `json:"match"`
+		State models.MatchState `json:"state"`
 	}
 	p, _ := json.Marshal(payload{Match: match, State: state})
 	s.hub.BroadcastToMatch(matchID, models.WSMessage{
