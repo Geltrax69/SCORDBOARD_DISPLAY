@@ -29,9 +29,9 @@ func (r *PlayerRepo) SetPlayers(matchID string, players []models.Player) error {
 			status = "playing"
 		}
 		if _, err := tx.Exec(
-			`INSERT INTO match_players (match_id, team, name, jersey_number, status, photo_url)
-			 VALUES ($1,$2,$3,$4,$5,$6)`,
-			matchID, p.Team, p.Name, p.JerseyNumber, status, p.PhotoURL,
+			`INSERT INTO match_players (match_id, team, name, gender, jersey_number, status, photo_url)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+			matchID, p.Team, p.Name, p.Gender, p.JerseyNumber, status, p.PhotoURL,
 		); err != nil {
 			tx.Rollback()
 			return err
@@ -42,7 +42,7 @@ func (r *PlayerRepo) SetPlayers(matchID string, players []models.Player) error {
 
 func (r *PlayerRepo) GetByMatch(matchID string) ([]models.Player, error) {
 	rows, err := r.db.Query(
-		`SELECT id, match_id, team, name, jersey_number,
+		`SELECT id, match_id, team, name, gender, jersey_number,
 		        COALESCE(status,'playing'), COALESCE(photo_url,''),
 		        created_at
 		 FROM match_players WHERE match_id = $1
@@ -57,7 +57,7 @@ func (r *PlayerRepo) GetByMatch(matchID string) ([]models.Player, error) {
 	var players []models.Player
 	for rows.Next() {
 		var p models.Player
-		if err := rows.Scan(&p.ID, &p.MatchID, &p.Team, &p.Name,
+		if err := rows.Scan(&p.ID, &p.MatchID, &p.Team, &p.Name, &p.Gender,
 			&p.JerseyNumber, &p.Status, &p.PhotoURL, &p.CreatedAt); err != nil {
 			return nil, err
 		}

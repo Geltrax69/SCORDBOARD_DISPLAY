@@ -43,7 +43,7 @@ func (r *TeamRepo) List() ([]models.Team, error) {
 	}
 
 	prows, err := r.db.Query(
-		`SELECT id, team_id, name, jersey_number, status, photo_url
+		`SELECT id, team_id, name, gender, jersey_number, status, photo_url
 		 FROM team_players ORDER BY team_id, sort_order, created_at`)
 	if err != nil {
 		return nil, err
@@ -51,7 +51,7 @@ func (r *TeamRepo) List() ([]models.Team, error) {
 	defer prows.Close()
 	for prows.Next() {
 		var p models.TeamPlayer
-		if err := prows.Scan(&p.ID, &p.TeamID, &p.Name, &p.JerseyNumber, &p.Status, &p.PhotoURL); err != nil {
+		if err := prows.Scan(&p.ID, &p.TeamID, &p.Name, &p.Gender, &p.JerseyNumber, &p.Status, &p.PhotoURL); err != nil {
 			return nil, err
 		}
 		if i, ok := byID[p.TeamID]; ok {
@@ -134,7 +134,7 @@ func echoPlayers(teamID string, players []models.PlayerInput) []models.TeamPlaye
 			status = "playing"
 		}
 		out = append(out, models.TeamPlayer{
-			TeamID: teamID, Name: p.Name, JerseyNumber: p.JerseyNumber,
+			TeamID: teamID, Name: p.Name, Gender: p.Gender, JerseyNumber: p.JerseyNumber,
 			Status: status, PhotoURL: p.PhotoURL,
 		})
 	}
@@ -151,9 +151,9 @@ func insertTeamPlayers(tx *sql.Tx, teamID string, players []models.PlayerInput) 
 			status = "playing"
 		}
 		_, err := tx.Exec(
-			`INSERT INTO team_players (team_id, name, jersey_number, status, photo_url, sort_order)
-			 VALUES ($1,$2,$3,$4,$5,$6)`,
-			teamID, p.Name, p.JerseyNumber, status, p.PhotoURL, i)
+			`INSERT INTO team_players (team_id, name, gender, jersey_number, status, photo_url, sort_order)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+			teamID, p.Name, p.Gender, p.JerseyNumber, status, p.PhotoURL, i)
 		if err != nil {
 			return err
 		}

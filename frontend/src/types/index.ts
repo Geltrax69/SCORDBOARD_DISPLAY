@@ -188,6 +188,7 @@ export interface WSMessage {
 
 export interface PlayerInput {
   name: string
+  gender?: string
   jersey_number: number
   status: 'playing' | 'sub'
   photo_url: string
@@ -198,6 +199,7 @@ export interface Player {
   match_id: string
   team: 'A' | 'B'
   name: string
+  gender: string
   jersey_number: number
   status: 'playing' | 'sub'
   photo_url: string
@@ -208,6 +210,7 @@ export interface TeamPlayer {
   id: string
   team_id: string
   name: string
+  gender: string
   jersey_number: number
   status: 'playing' | 'sub'
   photo_url: string

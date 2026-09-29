@@ -38,7 +38,7 @@ export function TeamsControl() {
     setEditing(t)
     setForm({ name: t.name, color: t.color, logo_url: t.logo_url })
     setPlayers(t.players.map((p) => ({
-      name: p.name, jersey_number: p.jersey_number, status: p.status, photo_url: p.photo_url,
+      name: p.name, gender: p.gender, jersey_number: p.jersey_number, status: p.status, photo_url: p.photo_url,
     })))
     setError(''); setOpen(true)
   }

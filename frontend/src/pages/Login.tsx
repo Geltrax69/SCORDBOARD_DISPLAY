@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { login } from '@/services/api'
 import { useAuthStore } from '@/store/authStore'
-import { Eye, EyeOff, Zap } from 'lucide-react'
+import { Eye, EyeOff, Loader2, Monitor, Radio, ShieldCheck } from 'lucide-react'
 
 export default function Login() {
   const navigate  = useNavigate()
@@ -26,99 +26,109 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-dark-950 flex items-center justify-center p-4 relative overflow-hidden">
-      {/* Ambient orbs */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -left-40 w-96 h-96 bg-brand-600/20 rounded-full blur-[120px]" />
-        <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-brand-800/15 rounded-full blur-[120px]" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-brand-500/8 rounded-full blur-[80px]" />
-      </div>
+    <main className="min-h-screen bg-dark-950 text-dark-100 lg:grid lg:grid-cols-[minmax(0,1.05fr)_minmax(430px,0.95fr)]">
+      <section className="relative hidden lg:flex min-h-screen flex-col justify-between overflow-hidden border-r border-dark-800 px-12 py-10 xl:px-20 xl:py-14">
+        <div className="absolute inset-0 pointer-events-none opacity-[0.045]"
+          style={{ backgroundImage: 'linear-gradient(#818cf8 1px,transparent 1px),linear-gradient(90deg,#818cf8 1px,transparent 1px)', backgroundSize: '56px 56px' }} />
+        <div className="absolute -left-28 top-1/3 h-80 w-80 rounded-full bg-brand-600/15 blur-[100px] pointer-events-none" />
 
-      {/* Grid pattern */}
-      <div className="absolute inset-0 opacity-[0.03]"
-        style={{ backgroundImage: 'linear-gradient(#6366f1 1px,transparent 1px),linear-gradient(90deg,#6366f1 1px,transparent 1px)', backgroundSize: '48px 48px' }} />
-
-      <div className="relative w-full max-w-[400px]">
-        {/* Branding */}
-        <div className="text-center mb-10">
-          <div className="w-32 h-32 mx-auto mb-4 rounded-full bg-white flex items-center justify-center overflow-hidden shadow-glow-brand animate-float">
-            <img src="/logo.png" alt="ScoreCast" className="w-[125%] h-[125%] object-contain" />
+        <div className="relative flex items-center gap-3">
+          <div className="h-12 w-12 rounded-xl bg-white overflow-hidden grid place-items-center">
+            <img src="/logo.png" alt="" className="h-[120%] w-[120%] object-contain" />
           </div>
-          <div className="flex items-center justify-center gap-2 mt-2">
-            <Zap size={12} className="text-live" />
-            <p className="text-dark-400 text-sm font-medium">Real-time sports scoring system</p>
+          <div><p className="text-lg font-black text-white">ScoreCast</p><p className="text-xs text-dark-400">Tournament operations</p></div>
+        </div>
+
+        <div className="relative max-w-xl">
+          <p className="text-sm font-semibold text-brand-300 mb-4">Live event control</p>
+          <h1 className="text-4xl xl:text-5xl font-black tracking-[-0.035em] text-white text-balance leading-[1.08]">
+            From team setup to the final point.
+          </h1>
+          <p className="mt-5 max-w-lg text-base leading-7 text-dark-300">
+            Prepare rosters, connect scorers, manage live matches, and control every venue display from one workspace.
+          </p>
+          <div className="mt-9 flex flex-wrap gap-x-7 gap-y-4 text-sm text-dark-300">
+            <span className="inline-flex items-center gap-2"><ShieldCheck size={16} className="text-live" /> Role-based access</span>
+            <span className="inline-flex items-center gap-2"><Radio size={16} className="text-live" /> Live scoring</span>
+            <span className="inline-flex items-center gap-2"><Monitor size={16} className="text-live" /> Broadcast display</span>
           </div>
         </div>
 
-        {/* Card — login. ponytail: demo creds removed for production. */}
-        <div className="card-hi p-8 shadow-card-hi">
-          {/* Top accent */}
-          <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand-500/50 to-transparent rounded-t-2xl" />
+        <p className="relative text-xs text-dark-500">Secure access for authorized tournament staff.</p>
+      </section>
 
-          <h2 className="text-xl font-bold text-white mb-6">Welcome back</h2>
+      <section className="min-h-screen flex items-center justify-center px-5 py-10 sm:px-10">
+        <div className="w-full max-w-md">
+          <div className="flex items-center gap-3 mb-10 lg:hidden">
+            <div className="h-12 w-12 rounded-xl bg-white overflow-hidden grid place-items-center">
+              <img src="/logo.png" alt="" className="h-[120%] w-[120%] object-contain" />
+            </div>
+            <div><p className="text-lg font-black text-white">ScoreCast</p><p className="text-xs text-dark-400">Tournament operations</p></div>
+          </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="mb-8">
+            <h2 className="text-3xl font-black tracking-[-0.025em] text-white">Sign in</h2>
+            <p className="mt-2 text-sm text-dark-300">Use your tournament account to continue.</p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-5" noValidate>
             <div>
-              <label className="block text-xs font-semibold text-dark-400 uppercase tracking-wider mb-2">
+              <label htmlFor="username" className="block text-sm font-semibold text-dark-200 mb-2">
                 Username
               </label>
               <input
+                id="username"
                 type="text" autoComplete="username" autoCapitalize="none" spellCheck={false}
                 value={email} onChange={(e) => setEmail(e.target.value)} required
-                className="w-full px-4 py-3 rounded-xl text-dark-100 text-sm
-                           bg-dark-900 border border-dark-750
-                           focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30
-                           placeholder-dark-600 transition-all"
-                placeholder="username"
+                className="w-full px-4 py-3.5 rounded-xl text-dark-100 text-base bg-dark-900 border border-dark-700
+                           focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/25
+                           placeholder:text-dark-400 transition-colors"
+                placeholder="Enter username"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-dark-400 uppercase tracking-wider mb-2">
+              <label htmlFor="password" className="block text-sm font-semibold text-dark-200 mb-2">
                 Password
               </label>
               <div className="relative">
                 <input
+                  id="password"
                   type={showPass ? 'text' : 'password'} autoComplete="current-password"
                   value={password} onChange={(e) => setPassword(e.target.value)} required
-                  className="w-full px-4 py-3 pr-11 rounded-xl text-dark-100 text-sm
-                             bg-dark-900 border border-dark-750
-                             focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30
-                             placeholder-dark-600 transition-all"
+                  className="w-full px-4 py-3.5 pr-12 rounded-xl text-dark-100 text-base bg-dark-900 border border-dark-700
+                             focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/25
+                             placeholder:text-dark-400 transition-colors"
                   placeholder="••••••••"
                 />
                 <button type="button" onClick={() => setShowPass(!showPass)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-dark-500 hover:text-dark-200 transition-colors">
+                  aria-label={showPass ? 'Hide password' : 'Show password'}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-dark-400 hover:text-dark-100 transition-colors">
                   {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
             </div>
 
             {error && (
-              <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-danger/10 border border-danger/20 text-danger text-sm">
-                {error}
+              <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl bg-danger/10 border border-danger/30 text-red-300 text-sm" role="alert">
+                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-danger shrink-0" /> {error}
               </div>
             )}
 
             <button type="submit" disabled={loading}
-              className="btn-neon w-full py-3 rounded-xl font-bold text-white text-sm
-                         bg-gradient-to-r from-brand-600 to-brand-500
-                         disabled:opacity-50 disabled:cursor-not-allowed
-                         hover:from-brand-500 hover:to-brand-400 transition-all
-                         shadow-glow-brand/0 hover:shadow-glow-brand">
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z"/>
-                  </svg>
-                  Signing in…
-                </span>
-              ) : 'Sign in'}
+              className="w-full min-h-12 rounded-xl font-bold text-white text-sm bg-brand-600 hover:bg-brand-500
+                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2 focus-visible:ring-offset-dark-950
+                         disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
+              {loading && <Loader2 size={16} className="animate-spin" />}
+              {loading ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
+
+          <p className="mt-8 text-center text-xs leading-5 text-dark-500">
+            Need access? Contact your tournament administrator.
+          </p>
         </div>
-      </div>
-    </div>
+      </section>
+    </main>
   )
 }

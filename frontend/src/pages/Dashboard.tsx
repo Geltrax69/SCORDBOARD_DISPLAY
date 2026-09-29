@@ -13,13 +13,14 @@ import { DeviceDashboard } from '@/components/admin/DeviceDashboard'
 import { DisplayControl } from '@/components/admin/DisplayControl'
 import { DisplayAssetsControl } from '@/components/admin/DisplayAssetsControl'
 import { TeamsControl } from '@/components/admin/TeamsControl'
+import { PlayerImport } from '@/components/admin/PlayerImport'
 import { MatchQRModal } from '@/components/admin/MatchQRModal'
 import { PlayersForm } from '@/components/admin/PlayersForm'
 import {
   Trophy, MapPin, Zap, Plus, ExternalLink,
   Wifi, WifiOff, Copy, Check, ChevronRight,
   QrCode, TrendingUp, StopCircle, Trash2,
-  Upload, X, ImageIcon, Loader2, Tv, Users, Settings,
+  Upload, X, ImageIcon, Loader2, Tv, Users, Settings, FileSpreadsheet,
 } from 'lucide-react'
 
 import type { ServerInfo, PlayerInput, Match, Team, EventFormat } from '@/types'
@@ -44,13 +45,14 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-type TabId = 'matches' | 'display' | 'teams' | 'setup'
+type TabId = 'matches' | 'display' | 'teams' | 'setup' | 'import'
 
 const TABS: { id: TabId; label: string; icon: typeof Zap; adminOnly?: boolean }[] = [
   { id: 'matches', label: 'Matches', icon: Zap },
   { id: 'display', label: 'Display', icon: Tv,    adminOnly: true },
   { id: 'teams',   label: 'Teams',   icon: Users, adminOnly: true },
   { id: 'setup',   label: 'Setup',   icon: Settings, adminOnly: true },
+  { id: 'import',  label: 'Upload Excel', icon: FileSpreadsheet, adminOnly: true },
 ]
 
 const EVENT_FORMATS: { id: EventFormat; label: string; rounds: string; hint: string }[] = [
@@ -361,7 +363,7 @@ export default function Dashboard() {
       [`team_${side.toLowerCase()}_logo`]: t.logo_url,
     }))
     setPlayers(t.players.map((p) => ({
-      name: p.name, jersey_number: p.jersey_number, status: p.status, photo_url: p.photo_url,
+      name: p.name, gender: p.gender, jersey_number: p.jersey_number, status: p.status, photo_url: p.photo_url,
     })))
   }
 
@@ -637,6 +639,11 @@ export default function Dashboard() {
 
             {token && <div className="card-hi p-5"><DeviceDashboard token={token} /></div>}
           </div>
+        )}
+
+        {/* ── Registration import: parse, validate, review, then save by district ── */}
+        {tab === 'import' && isSuperAdmin && (
+          <PlayerImport onImported={setSavedTeams} />
         )}
       </div>
 

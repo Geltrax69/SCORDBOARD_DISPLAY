@@ -120,6 +120,20 @@ function PlayerRow({ player, color, index, token, onUpdate, onRemove }: PlayerRo
                    tabular-nums flex-shrink-0"
       />
 
+      {/* Gender is retained from registration imports and can be corrected here. */}
+      <select
+        value={player.gender ?? ''}
+        onChange={(e) => onUpdate('gender', e.target.value)}
+        aria-label={`Gender for ${player.name || `player ${index + 1}`}`}
+        className="w-24 px-2 py-1.5 bg-dark-850 border border-dark-700 rounded-lg text-xs text-dark-200
+                   focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30"
+      >
+        <option value="">Gender</option>
+        <option value="Male">Male</option>
+        <option value="Female">Female</option>
+        <option value="Other">Other</option>
+      </select>
+
       {/* Name */}
       <input
         type="text"
@@ -170,9 +184,10 @@ function PlayerRow({ player, color, index, token, onUpdate, onRemove }: PlayerRo
 }
 
 export function PlayersForm({ teamName, teamColor, players, onChange, token, maxPlayers = 12 }: Props) {
+  const effectiveMax = Math.max(maxPlayers, players.length)
   const add = () => {
-    if (players.length >= maxPlayers) return
-    onChange([...players, { name: '', jersey_number: players.length + 1, status: 'playing', photo_url: '' }])
+    if (players.length >= effectiveMax) return
+    onChange([...players, { name: '', gender: '', jersey_number: players.length + 1, status: 'playing', photo_url: '' }])
   }
 
   const update = (i: number, field: keyof PlayerInput, value: string | number) => {
@@ -203,7 +218,7 @@ export function PlayersForm({ teamName, teamColor, players, onChange, token, max
             <span className="text-dark-400">No players added yet</span>
           )}
         </div>
-        <span className="text-dark-400 font-medium">{players.length} / {maxPlayers}</span>
+        <span className="text-dark-400 font-medium">{players.length} / {effectiveMax}</span>
       </div>
 
       {/* Player rows */}
@@ -222,7 +237,7 @@ export function PlayersForm({ teamName, teamColor, players, onChange, token, max
       </div>
 
       {/* Add player */}
-      {players.length < maxPlayers && (
+      {players.length < effectiveMax && (
         <button
           type="button"
           onClick={add}

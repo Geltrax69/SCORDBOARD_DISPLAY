@@ -77,6 +77,7 @@ type Player struct {
 	MatchID      string    `json:"match_id"`
 	Team         string    `json:"team"`
 	Name         string    `json:"name"`
+	Gender       string    `json:"gender"`
 	JerseyNumber int       `json:"jersey_number"`
 	Status       string    `json:"status"` // "playing" | "sub"
 	PhotoURL     string    `json:"photo_url"`
@@ -85,6 +86,7 @@ type Player struct {
 
 type PlayerInput struct {
 	Name         string `json:"name"`
+	Gender       string `json:"gender"`
 	JerseyNumber int    `json:"jersey_number"`
 	Status       string `json:"status"`
 	PhotoURL     string `json:"photo_url"`
@@ -106,6 +108,7 @@ type TeamPlayer struct {
 	ID           string `json:"id"`
 	TeamID       string `json:"team_id"`
 	Name         string `json:"name"`
+	Gender       string `json:"gender"`
 	JerseyNumber int    `json:"jersey_number"`
 	Status       string `json:"status"`
 	PhotoURL     string `json:"photo_url"`
