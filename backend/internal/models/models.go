@@ -274,6 +274,7 @@ const (
 	EventSponsorShow       = "sponsor_show"
 	EventDisplayBackground = "display_background" // persistent full-screen bg image
 	EventDisplayStyle      = "display_style"      // scorecard style: classic | cards
+	EventDisplayIdentify   = "display_identify"   // flash a screen's name so staff can find the TV
 	EventServeSet          = "serve_set"          // referee sets who serves first (toss)
 	EventRoundStart        = "round_start"        // controller starts the next round
 )
@@ -367,6 +368,20 @@ type DisplayLayoutPayload struct {
 	Mode                int      `json:"mode"`
 	MatchIDs            []string `json:"match_ids"`
 	ShowPlayerAnimation bool     `json:"show_player_animation"`
+	// Screen the layout belongs to; displays ignore layouts for other screens.
+	Screen string `json:"screen,omitempty"`
+}
+
+// DisplayScreen is one physical TV, opened once at /display?screen=<slug> and
+// then controlled independently from the admin panel.
+type DisplayScreen struct {
+	Slug                string    `json:"slug"`
+	Name                string    `json:"name"`
+	Mode                int       `json:"mode"`
+	MatchIDs            []string  `json:"match_ids"`
+	ShowPlayerAnimation bool      `json:"show_player_animation"`
+	Online              int       `json:"online"` // connected displays on this screen
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 type MatchState struct {

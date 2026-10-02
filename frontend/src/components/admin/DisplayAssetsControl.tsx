@@ -77,7 +77,7 @@ export function DisplayAssetsControl() {
       <div className="flex items-center gap-2">
         <Tv size={16} className="text-brand-400" />
         <h3 className="font-semibold text-dark-100">Sponsors &amp; Announcements</h3>
-        <span className="text-xs text-dark-500 ml-auto">Build once · show with one click</span>
+        <span className="text-xs text-dark-500 ml-auto">Build once · Show sends to every screen</span>
       </div>
 
       {/* Tabs */}

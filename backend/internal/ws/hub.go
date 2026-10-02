@@ -3,6 +3,7 @@ package ws
 import (
 	"encoding/json"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -154,6 +155,44 @@ func (h *Hub) BroadcastAll(msg models.WSMessage) {
 		}
 	}
 	h.mu.RUnlock()
+}
+
+// ScreenRoom is the room a display joins for its named screen (?screen=<slug>).
+func ScreenRoom(slug string) string { return "screen:" + slug }
+
+// BroadcastToScreens sends only to displays on the given screens. Unlike
+// BroadcastToMatch it does not fan out to global clients, so changing one TV
+// never touches the others.
+func (h *Hub) BroadcastToScreens(slugs []string, msg models.WSMessage) {
+	data, _ := json.Marshal(msg)
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	sent := make(map[*Client]bool)
+	for _, slug := range slugs {
+		for client := range h.rooms[ScreenRoom(slug)] {
+			if sent[client] {
+				continue
+			}
+			sent[client] = true
+			select {
+			case client.send <- data:
+			default:
+			}
+		}
+	}
+}
+
+// ScreenOnline returns how many displays are connected to each named screen.
+func (h *Hub) ScreenOnline() map[string]int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	counts := make(map[string]int)
+	for room, clients := range h.rooms {
+		if slug, ok := strings.CutPrefix(room, "screen:"); ok {
+			counts[slug] = len(clients)
+		}
+	}
+	return counts
 }
 
 func (h *Hub) Register(c *Client) {

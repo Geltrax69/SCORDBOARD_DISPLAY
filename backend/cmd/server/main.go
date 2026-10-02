@@ -75,6 +75,7 @@ func main() {
 	matchH := handlers.NewMatchHandler(matchRepo, playerRepo, matchSvc)
 	eventH := handlers.NewEventHandler(eventRepo, matchRepo, userRepo, matchSvc)
 	wsH := handlers.NewWebSocketHandler(hub, matchRepo)
+	screenH := handlers.NewScreenHandler(repository.NewDisplayScreenRepo(database), hub)
 	deviceH := handlers.NewDeviceHandler(hub, matchRepo, cfg.JWTSecret, serverInfo, database)
 	uploadH := handlers.NewUploadHandler(uploadDir, "/uploads")
 	assetH := handlers.NewAssetHandler(assetRepo, hub)
@@ -104,7 +105,8 @@ func main() {
 	// Public endpoints (no auth)
 	r.POST("/api/connect", deviceH.Connect)
 	r.POST("/api/refresh-token", deviceH.RefreshToken)
-	r.GET("/api/display/layout", deviceH.GetLayout)
+	r.GET("/api/display/layout", screenH.GetMainLayout)
+	r.GET("/api/display/screens/:slug", screenH.Get)
 	r.GET("/api/display/background", deviceH.GetBackground)
 	r.GET("/api/display/style", deviceH.GetStyle)
 
@@ -147,7 +149,15 @@ func main() {
 				admin.DELETE("/matches/:id", matchH.Delete)
 
 				admin.POST("/announce", eventH.Announce)
-				admin.POST("/display/layout", deviceH.SetLayout)
+				admin.POST("/display/layout", screenH.SetMainLayout)
+
+				// Named screens — one control card per TV
+				admin.GET("/display/screens", screenH.List)
+				admin.POST("/display/screens", screenH.Create)
+				admin.PUT("/display/screens/:slug", screenH.Rename)
+				admin.DELETE("/display/screens/:slug", screenH.Delete)
+				admin.POST("/display/screens/:slug/layout", screenH.SetLayout)
+				admin.POST("/display/screens/:slug/identify", screenH.Identify)
 				admin.POST("/display/background", deviceH.SetBackground)
 				admin.POST("/display/style", deviceH.SetStyle)
 

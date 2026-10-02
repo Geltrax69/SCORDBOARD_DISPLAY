@@ -105,6 +105,7 @@ export type EventType =
   | 'sponsor_show'
   | 'display_background'
   | 'display_style'
+  | 'display_identify'
   | 'connected'
 
 export interface Event {
@@ -156,6 +157,20 @@ export interface DisplayLayoutPayload {
   mode: 1 | 2 | 3 | 4 | 5
   match_ids: string[]
   show_player_animation?: boolean
+  /** Screen the layout belongs to (set by the server on pushes). */
+  screen?: string
+}
+
+/** One TV, opened once at /display?screen=<slug> and controlled on its own. */
+export interface DisplayScreen {
+  slug: string
+  name: string
+  mode: 1 | 2 | 3 | 4 | 5
+  match_ids: string[]
+  show_player_animation: boolean
+  /** Displays currently connected to this screen. */
+  online: number
+  updated_at: string
 }
 
 export interface DisplayAsset {

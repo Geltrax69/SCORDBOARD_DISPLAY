@@ -79,6 +79,11 @@ func (h *WebSocketHandler) Connect(c *gin.Context) {
 	}
 	if !isDevice {
 		rooms = append(rooms, "global")
+		// A display opened as a named screen also joins that screen's room so
+		// layout pushes reach only this TV.
+		if screen := c.Query("screen"); screen != "" {
+			rooms = append(rooms, ws_pkg.ScreenRoom(screen))
+		}
 	}
 
 	client := ws_pkg.NewClient(h.hub, conn, userID, role, ipAddress, deviceName, matchID, matchCode, matchName, rooms)

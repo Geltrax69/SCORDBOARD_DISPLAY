@@ -23,9 +23,9 @@ type DeviceHandler struct {
 	jwtSecret     string
 	frontendPort  string // e.g. "3000"
 
-	// Current display layout + background (in-memory + DB backed)
+	// Display background + style shared by every screen (in-memory + DB backed).
+	// Per-screen layouts live in ScreenHandler.
 	layoutMu   sync.RWMutex
-	layout     models.DisplayLayoutPayload
 	background string
 	style      string
 	db         *sql.DB
@@ -35,20 +35,11 @@ func NewDeviceHandler(hub *ws_pkg.Hub, matchRepo *repository.MatchRepo, secret s
 	h := &DeviceHandler{
 		hub: hub, matchRepo: matchRepo,
 		jwtSecret: secret, frontendPort: "3000", db: db,
-		layout: models.DisplayLayoutPayload{Mode: 1, MatchIDs: []string{}},
-		style:  "classic",
+		style: "classic",
 	}
-	// Load persisted layout + background + style
-	var mode int
-	var matchIDsJSON []byte
-	err := db.QueryRow(`SELECT mode, array_to_json(match_ids), background_url, display_style FROM current_display_layout LIMIT 1`).
-		Scan(&mode, &matchIDsJSON, &h.background, &h.style)
-	if err == nil {
-		var ids []string
-		if json.Unmarshal(matchIDsJSON, &ids) == nil {
-			h.layout = models.DisplayLayoutPayload{Mode: mode, MatchIDs: ids}
-		}
-	}
+	// Load persisted background + style
+	db.QueryRow(`SELECT background_url, display_style FROM current_display_layout LIMIT 1`).
+		Scan(&h.background, &h.style)
 	return h
 }
 
@@ -153,46 +144,6 @@ func (h *DeviceHandler) ListDevices(c *gin.Context) {
 	c.JSON(http.StatusOK, filtered)
 }
 
-// GetLayout returns the current display layout
-func (h *DeviceHandler) GetLayout(c *gin.Context) {
-	h.layoutMu.RLock()
-	defer h.layoutMu.RUnlock()
-	c.JSON(http.StatusOK, h.layout)
-}
-
-// SetLayout sets display layout, persists it, and broadcasts via WS
-func (h *DeviceHandler) SetLayout(c *gin.Context) {
-	var layout models.DisplayLayoutPayload
-	if err := c.ShouldBindJSON(&layout); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	if layout.MatchIDs == nil {
-		layout.MatchIDs = []string{}
-	}
-
-	h.layoutMu.Lock()
-	h.layout = layout
-	h.layoutMu.Unlock()
-
-	// Persist to DB
-	go func() {
-		ids := make([]string, len(layout.MatchIDs))
-		copy(ids, layout.MatchIDs)
-		h.db.Exec(`UPDATE current_display_layout SET mode=$1, match_ids=$2, updated_at=NOW()`,
-			layout.Mode, pq_array(ids))
-	}()
-
-	// Broadcast to all display screens
-	payload, _ := json.Marshal(layout)
-	h.hub.BroadcastGlobal(models.WSMessage{
-		Type:    models.EventDisplayLayout,
-		Payload: payload,
-	})
-
-	c.JSON(http.StatusOK, layout)
-}
-
 // GetBackground returns the current persistent display background image URL.
 func (h *DeviceHandler) GetBackground(c *gin.Context) {
 	h.layoutMu.RLock()
@@ -253,20 +204,4 @@ func (h *DeviceHandler) SetStyle(c *gin.Context) {
 	h.hub.BroadcastAll(models.WSMessage{Type: models.EventDisplayStyle, Payload: payload})
 
 	c.JSON(http.StatusOK, gin.H{"style": req.Style})
-}
-
-// pq_array converts []string to PostgreSQL array literal
-func pq_array(s []string) interface{} {
-	if len(s) == 0 {
-		return "{}"
-	}
-	result := "{"
-	for i, v := range s {
-		if i > 0 {
-			result += ","
-		}
-		result += `"` + v + `"`
-	}
-	result += "}"
-	return result
 }

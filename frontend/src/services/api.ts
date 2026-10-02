@@ -4,7 +4,7 @@ import type {
   User, Tournament, Court, Match, Event, MatchState, Player,
   CreateMatchPayload, DisplayLayoutPayload, TimeoutPayload,
   SubstitutionPayload, ScorePayload, PlayerInput, DeviceInfo, ServerInfo,
-  DisplayAsset, Team,
+  DisplayAsset, DisplayScreen, Team,
 } from '@/types'
 
 const BASE = import.meta.env.VITE_API_URL ?? '/api'
@@ -174,8 +174,9 @@ export const createDisplayAsset = (data: {
 export const deleteDisplayAsset = (id: string) =>
   api.delete(`/display-assets/${id}`)
 
-export const showDisplayAsset = (id: string) =>
-  api.post(`/display-assets/${id}/show`)
+/** Show an asset on every display, or only on the given named screens. */
+export const showDisplayAsset = (id: string, screens?: string[]) =>
+  api.post(`/display-assets/${id}/show`, screens?.length ? { screens } : undefined)
 
 // Announcements & Display
 export const announce = (message: string, duration = 10) =>
@@ -183,6 +184,25 @@ export const announce = (message: string, duration = 10) =>
 
 export const setDisplayLayout = (layout: DisplayLayoutPayload) =>
   api.post('/display/layout', layout)
+
+// Named display screens — one control card per TV
+export const listDisplayScreens = () =>
+  api.get<DisplayScreen[]>('/display/screens').then((r) => r.data)
+
+export const createDisplayScreen = (name: string, slug?: string) =>
+  api.post<DisplayScreen>('/display/screens', { name, slug }).then((r) => r.data)
+
+export const renameDisplayScreen = (slug: string, name: string) =>
+  api.put<DisplayScreen>(`/display/screens/${slug}`, { name }).then((r) => r.data)
+
+export const deleteDisplayScreen = (slug: string) =>
+  api.delete(`/display/screens/${slug}`)
+
+export const setScreenLayout = (slug: string, layout: DisplayLayoutPayload) =>
+  api.post<DisplayScreen>(`/display/screens/${slug}/layout`, layout).then((r) => r.data)
+
+export const identifyDisplayScreen = (slug: string) =>
+  api.post(`/display/screens/${slug}/identify`)
 
 export const getDisplayBackground = () =>
   api.get<{ background_url: string }>('/display/background').then((r) => r.data.background_url)

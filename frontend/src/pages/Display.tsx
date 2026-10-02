@@ -55,6 +55,9 @@ type CellFx =
 export default function Display() {
   const [searchParams] = useSearchParams()
   const singleMatchId = searchParams.get('match')
+  // Named screen this TV is (/display?screen=court-a). Plain /display is the
+  // 'main' screen; a ?match= display is locked to its match and has none.
+  const screen = singleMatchId ? null : (searchParams.get('screen') || 'main')
   const token = useAuthStore((s) => s.token)
   const wsStatus = useWSStore((s) => s.status)
   const setWsStatus = useWSStore((s) => s.setStatus)
@@ -69,6 +72,9 @@ export default function Display() {
   const [bgUrl, setBgUrl]           = useState('')
   const [cardStyle, setCardStyle]   = useState<'classic' | 'cards'>('classic')
   const [loading, setLoading]       = useState(true)
+  const [screenMissing, setScreenMissing] = useState(false)
+  // Name flashed on screen when the admin presses "Identify".
+  const [identifyName, setIdentifyName] = useState<string | null>(null)
   // Winner takeover + reflow: a just-finished match shows full-screen, then is
   // dropped from the grid so the remaining matches stretch to fill the space.
   const [celebrating, setCelebrating] = useState<LiveMatch | null>(null)
@@ -111,10 +117,15 @@ export default function Display() {
     const init = async () => {
       let ids = singleMatchId ? [singleMatchId] : []
 
-      // If no specific match requested, try to get persisted layout from server
-      if (ids.length === 0 && token) {
+      // If no specific match requested, load this screen's saved layout
+      if (ids.length === 0 && token && screen) {
         try {
-          const res = await fetch(`${API_BASE}/display/layout`)
+          const res = await fetch(`${API_BASE}/display/screens/${encodeURIComponent(screen)}`)
+          if (res.status === 404) {
+            setScreenMissing(true)
+            setLoading(false)
+            return
+          }
           if (res.ok) {
             const layout = await res.json()
             if (layout.mode) setMode(layout.mode)
@@ -124,8 +135,9 @@ export default function Display() {
         } catch {}
       }
 
-      // Fallback: load all non-completed matches
-      if (ids.length === 0) {
+      // Fallback for the main screen: load all non-completed matches. A named
+      // screen with nothing assigned waits instead of showing every court.
+      if (ids.length === 0 && screen === 'main') {
         const all = await listMatches()
         ids = all.filter((m) => m.status !== 'completed' && m.status !== 'cancelled').map((m) => m.id)
       }
@@ -151,7 +163,7 @@ export default function Display() {
       setLoading(false)
     }
     init()
-  }, [singleMatchId, token])
+  }, [singleMatchId, screen, token])
 
   // ── WS message handler ────────────────────────────────────────────────────
   const handleWS = useCallback((msg: WSMessage) => {
@@ -264,7 +276,9 @@ export default function Display() {
         break
       }
       case 'display_layout_change': {
-        const p = payload as unknown as { mode: 1|2|3|4|5; match_ids: string[]; show_player_animation?: boolean }
+        const p = payload as unknown as { mode: 1|2|3|4|5; match_ids: string[]; show_player_animation?: boolean; screen?: string }
+        // Layouts are pushed per screen — never apply another TV's layout.
+        if (p.screen && p.screen !== screen) break
         if (p.mode) {
           setMode(p.mode)
           setMatchIds(p.match_ids ?? [])
@@ -283,8 +297,14 @@ export default function Display() {
         }
         break
       }
+      case 'display_identify': {
+        const p = payload as unknown as { screen?: string; name?: string }
+        if (p.screen && p.screen !== screen) break
+        setIdentifyName(p.name || screen || 'Display')
+        break
+      }
     }
-  }, [players, liveMatches])
+  }, [players, liveMatches, screen])
 
   const handleWSRef = useRef(handleWS)
   useEffect(() => {
@@ -317,17 +337,37 @@ export default function Display() {
   useEffect(() => {
     if (!token) return
     const path = singleMatchId ? `/ws/match/${singleMatchId}` : '/ws/global'
-    const url = `${WS_BASE}${path}?token=${encodeURIComponent(token)}`
+    let url = `${WS_BASE}${path}?token=${encodeURIComponent(token)}`
+    if (screen) url += `&screen=${encodeURIComponent(screen)}`
     scoreboardWS.connect(url, setWsStatus)
 
     const unsub = scoreboardWS.subscribe((msg: WSMessage) => handleWSRef.current(msg))
     return () => { unsub(); scoreboardWS.disconnect() }
-  }, [token, singleMatchId, setWsStatus])
+  }, [token, singleMatchId, screen, setWsStatus])
+
+  // Identify flash clears itself after a few seconds.
+  useEffect(() => {
+    if (!identifyName) return
+    const t = setTimeout(() => setIdentifyName(null), 6000)
+    return () => clearTimeout(t)
+  }, [identifyName])
 
   if (loading) {
     return (
       <div className="min-h-screen bg-dark-950 flex items-center justify-center">
         <LoadingSpinner size="lg" label="Connecting to live scores…" />
+      </div>
+    )
+  }
+
+  if (screenMissing) {
+    return (
+      <div className="h-screen bg-dark-950 flex flex-col items-center justify-center gap-4 text-center px-6">
+        <Tv size={48} className="text-dark-600" />
+        <p className="text-white text-3xl font-black">Screen “{screen}” not found</p>
+        <p className="text-dark-400 text-lg max-w-xl">
+          Add a screen with this link name in the admin panel (Display → Screens), then reload this page.
+        </p>
       </div>
     )
   }
@@ -365,6 +405,15 @@ export default function Display() {
           <MatchGrid matches={visibleList} players={players} showPlayerAnim={showPlayerAnim} fx={cellFx} cardStyle={cardStyle} />
         )}
       </div>
+
+      {/* Identify — big screen name so staff can find which TV this is */}
+      {identifyName && (
+        <div className="fixed inset-0 z-[90] flex flex-col items-center justify-center bg-dark-950/95 backdrop-blur-md pointer-events-none">
+          <p className="text-brand-300 uppercase tracking-[0.3em] font-black" style={{ fontSize: 'clamp(1rem,2.5vw,2rem)' }}>This screen is</p>
+          <p className="text-white font-black leading-none mt-4 text-center px-8" style={{ fontSize: 'clamp(3rem,10vw,9rem)' }}>{identifyName}</p>
+          {screen && <p className="text-dark-400 font-mono mt-6" style={{ fontSize: 'clamp(0.9rem,1.6vw,1.4rem)' }}>?screen={screen}</p>}
+        </div>
+      )}
 
       {/* Winner takeover — full-screen celebration before the grid reflows */}
       {celebrating && (

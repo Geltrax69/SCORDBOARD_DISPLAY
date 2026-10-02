@@ -17,6 +17,7 @@ A real-time sports scoreboard system with a broadcast-style display screen, admi
 - **Mobile Scorer Panel** — connect phone via QR code or 4-digit code, control scores/timer/timeouts
 - **Admin Dashboard** — create matches, manage teams & players with logos and photos
 - **Multi-match support** — 1–4 matches on screen simultaneously
+- **Multiple TVs, one admin panel** — add a named screen per TV (Display → Screens), open its link once on that TV, then control each TV separately: its own layout, matches, Identify flash, and targeted sponsors/announcements
 
 ---
 

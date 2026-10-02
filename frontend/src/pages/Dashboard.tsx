@@ -10,7 +10,7 @@ import { useToastStore } from '@/store/toastStore'
 import { Modal } from '@/components/common/Modal'
 import { PageLoader } from '@/components/common/LoadingSpinner'
 import { DeviceDashboard } from '@/components/admin/DeviceDashboard'
-import { DisplayControl } from '@/components/admin/DisplayControl'
+import { ScreensPanel } from '@/components/admin/ScreensPanel'
 import { DisplayAssetsControl } from '@/components/admin/DisplayAssetsControl'
 import { TeamsControl } from '@/components/admin/TeamsControl'
 import { PlayerImport } from '@/components/admin/PlayerImport'
@@ -566,8 +566,8 @@ export default function Dashboard() {
 
         {/* ── Display: one job, previously split across two panels ── */}
         {tab === 'display' && isSuperAdmin && (
-          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-6 items-start">
-            <div className="card-hi p-5"><DisplayControl matches={matches} /></div>
+          <div className="space-y-6">
+            <div className="card-hi p-5"><ScreensPanel matches={matches} displayUrl={serverInfo?.display_url} /></div>
             <div className="card-hi p-5"><DisplayAssetsControl /></div>
           </div>
         )}

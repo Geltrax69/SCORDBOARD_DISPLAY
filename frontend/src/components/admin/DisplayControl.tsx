@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react'
 import { clsx } from 'clsx'
-import { Monitor, Columns2, Grid2x2, Megaphone, Video, Tv, Send, Play, Check, Users } from 'lucide-react'
+import { Monitor, Columns2, Grid2x2, Megaphone, Video, Send, Play, Check, Users } from 'lucide-react'
 import { Button } from '@/components/common/Button'
-import { setDisplayLayout, listDisplayAssets, showDisplayAsset } from '@/services/api'
+import { setScreenLayout, listDisplayAssets, showDisplayAsset } from '@/services/api'
 import { isVideoUrl } from '@/components/admin/DisplayAssetsControl'
-import type { Match, DisplayAsset } from '@/types'
+import type { Match, DisplayAsset, DisplayScreen } from '@/types'
 
 interface Props {
   matches: Match[]
+  /** The one TV this panel controls. */
+  screen: DisplayScreen
+  onPushed?: (screen: DisplayScreen) => void
 }
 
 const MODES = [
@@ -20,17 +23,20 @@ const MODES = [
 
 const MAX_MATCHES: Record<number, number> = { 1: 1, 2: 2, 3: 4, 4: 0, 5: 0 }
 
-export function DisplayControl({ matches }: Props) {
+export function DisplayControl({ matches, screen, onPushed }: Props) {
   // Only live/upcoming matches are selectable for the display — not finished ones.
   const pickable = matches.filter((m) => m.status !== 'completed' && m.status !== 'cancelled')
-  const [mode, setMode]       = useState<1|2|3|4|5>(1)
-  const [selected, setSelected] = useState<string[]>([])
+  // Start from what this screen is showing now.
+  const [mode, setMode]       = useState<1|2|3|4|5>(screen.mode)
+  const [selected, setSelected] = useState<string[]>(
+    screen.match_ids.filter((id) => pickable.some((m) => m.id === id)),
+  )
   const [sending, setSending]  = useState(false)
   const [pushed, setPushed]    = useState(false)
   const [assets, setAssets]    = useState<DisplayAsset[]>([])
   const [shownId, setShownId]  = useState<string | null>(null)
   // Player intro animation on pending matches — off by default.
-  const [showPlayerAnim, setShowPlayerAnim] = useState(false)
+  const [showPlayerAnim, setShowPlayerAnim] = useState(screen.show_player_animation)
 
   const maxSel = MAX_MATCHES[mode] ?? 0
   const assetType: 'announcement' | 'sponsor' | null = mode === 4 ? 'announcement' : mode === 5 ? 'sponsor' : null
@@ -43,7 +49,7 @@ export function DisplayControl({ matches }: Props) {
   }, [assetType])
 
   const handleShowAsset = async (id: string) => {
-    await showDisplayAsset(id)
+    await showDisplayAsset(id, [screen.slug])
     setShownId(id)
     setTimeout(() => setShownId((cur) => (cur === id ? null : cur)), 2500)
   }
@@ -59,7 +65,8 @@ export function DisplayControl({ matches }: Props) {
   const handlePush = async () => {
     setSending(true)
     try {
-      await setDisplayLayout({ mode, match_ids: selected, show_player_animation: showPlayerAnim })
+      const updated = await setScreenLayout(screen.slug, { mode, match_ids: selected, show_player_animation: showPlayerAnim })
+      onPushed?.({ ...updated, online: screen.online })
       setPushed(true)
       setTimeout(() => setPushed(false), 2500)
     } finally {
@@ -74,12 +81,6 @@ export function DisplayControl({ matches }: Props) {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center gap-2">
-        <Tv size={16} className="text-brand-400" />
-        <h3 className="font-semibold text-dark-100">Display Control</h3>
-        <span className="text-xs text-dark-500 ml-auto">Push layout to all display screens</span>
-      </div>
-
       {/* Mode buttons */}
       <div className="grid grid-cols-5 gap-2">
         {MODES.map(({ mode: m, label, icon: Icon, desc }) => {
@@ -252,7 +253,7 @@ export function DisplayControl({ matches }: Props) {
           onClick={handlePush}
           disabled={maxSel > 0 && selected.length === 0}
         >
-          {pushed ? '✓ Pushed to Display Screens' : 'Push to Display Screens'}
+          {pushed ? `✓ Pushed to ${screen.name}` : `Push to ${screen.name}`}
         </Button>
       )}
     </div>

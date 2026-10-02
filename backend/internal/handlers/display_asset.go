@@ -73,8 +73,23 @@ func (h *AssetHandler) Delete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
 }
 
-// Show pushes a saved asset to every display screen via WebSocket.
+// Show pushes a saved asset via WebSocket — to every display, or only to the
+// named screens listed in the optional body {"screens": ["court-a", ...]}.
 func (h *AssetHandler) Show(c *gin.Context) {
+	var target struct {
+		Screens []string `json:"screens"`
+	}
+	if c.Request.ContentLength > 0 {
+		if err := c.ShouldBindJSON(&target); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
+	send := h.hub.BroadcastAll
+	if len(target.Screens) > 0 {
+		send = func(msg models.WSMessage) { h.hub.BroadcastToScreens(target.Screens, msg) }
+	}
+
 	asset, err := h.repo.FindByID(c.Param("id"))
 	if err != nil || asset == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "asset not found"})
@@ -87,7 +102,7 @@ func (h *AssetHandler) Show(c *gin.Context) {
 			ImageURL: asset.ImageURL,
 			Duration: asset.Duration,
 		})
-		h.hub.BroadcastAll(models.WSMessage{Type: models.EventSponsorShow, Payload: payload})
+		send(models.WSMessage{Type: models.EventSponsorShow, Payload: payload})
 	} else {
 		payload, _ := json.Marshal(models.AnnouncementPayload{
 			Message:  asset.Body,
@@ -95,7 +110,7 @@ func (h *AssetHandler) Show(c *gin.Context) {
 			ImageURL: asset.ImageURL,
 			Duration: asset.Duration,
 		})
-		h.hub.BroadcastAll(models.WSMessage{Type: models.EventAnnouncement, Payload: payload})
+		send(models.WSMessage{Type: models.EventAnnouncement, Payload: payload})
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "shown"})
