@@ -35,6 +35,7 @@ func (h *MatchHandler) Create(c *gin.Context) {
 		TeamBColor:   req.TeamBColor,
 		TeamALogo:    req.TeamALogo,
 		TeamBLogo:    req.TeamBLogo,
+		EventType:    req.EventType,
 		CreatedBy:    auth.GetUserID(c),
 	}
 	if err := h.matchRepo.Create(m); err != nil {

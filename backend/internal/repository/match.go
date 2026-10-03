@@ -57,6 +57,10 @@ func (r *MatchRepo) Create(m *models.Match) error {
 	if m.CreatedBy != "" {
 		createdBy = m.CreatedBy
 	}
+	var eventType interface{} // nil → fall back to the tournament's format
+	if m.EventType != "" {
+		eventType = models.ValidEventType(m.EventType)
+	}
 
 	// Retry up to 10 times to avoid match_code unique constraint collisions
 	for attempt := 0; attempt < 10; attempt++ {
@@ -66,10 +70,10 @@ func (r *MatchRepo) Create(m *models.Match) error {
 			   (court_id, tournament_id, team_a, team_b, team_a_color, team_b_color,
 			    team_a_logo, team_b_logo, match_code, event_type, created_by)
 			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,
-			         COALESCE((SELECT event_type FROM tournaments WHERE id = $2),'regu'), $10)
+			         COALESCE($11, (SELECT event_type FROM tournaments WHERE id = $2), 'regu'), $10)
 			 RETURNING id, status, timer_seconds, timer_running, match_code, event_type, created_at, updated_at`,
 			m.CourtID, m.TournamentID, m.TeamA, m.TeamB, m.TeamAColor, m.TeamBColor,
-			m.TeamALogo, m.TeamBLogo, code, createdBy,
+			m.TeamALogo, m.TeamBLogo, code, createdBy, eventType,
 		).Scan(&m.ID, &m.Status, &m.TimerSeconds, &m.TimerRunning,
 			&m.MatchCode, &m.EventType, &m.CreatedAt, &m.UpdatedAt)
 		if err == nil {
