@@ -837,6 +837,9 @@ type CreateMatchRequest struct {
 	TeamBLogo    string        `json:"team_b_logo"`
 	PlayersA     []PlayerInput `json:"players_a"`
 	PlayersB     []PlayerInput `json:"players_b"`
+	// Format of this match (regu | double | quad). Empty = the tournament's.
+	// Multi-event tournaments need it: a Doubles match in a Regu+Doubles event.
+	EventType string `json:"event_type"`
 }
 
 type CreateEventRequest struct {

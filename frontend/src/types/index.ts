@@ -292,6 +292,7 @@ export interface CreateMatchPayload {
   team_b: string
   team_a_color: string
   team_b_color: string
+  event_type?: EventFormat | '' // empty → tournament's format
 }
 
 export interface DisplayMode {

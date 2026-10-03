@@ -3,6 +3,7 @@ import { Users, Plus, Trash2, Pencil, Loader, Upload, X, Image as ImageIcon } fr
 import { listTeams, createTeam, updateTeam, deleteTeam, uploadTeamLogo } from '@/services/api'
 import { scoreboardWS } from '@/services/websocket'
 import { useAuthStore } from '@/store/authStore'
+import { useMatchStore } from '@/store/matchStore'
 import { Modal } from '@/components/common/Modal'
 import { PlayersForm } from '@/components/admin/PlayersForm'
 import type { Team, PlayerInput } from '@/types'
@@ -14,6 +15,7 @@ const blankForm = { name: '', color: '#3B82F6', logo_url: '' }
 
 export function TeamsControl() {
   const token = useAuthStore((s) => s.token) ?? ''
+  const tournaments = useMatchStore((s) => s.tournaments)
   const [teams, setTeams] = useState<Team[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -101,8 +103,22 @@ export function TeamsControl() {
           No saved teams yet. Create one and its players load automatically when you set up a match.
         </p>
       ) : (
-        <div className="space-y-2 max-h-72 overflow-y-auto">
-          {teams.map((t) => (
+        <div className="space-y-2 max-h-[28rem] overflow-y-auto">
+          {/* Grouped by tournament: the same district can register in two
+              tournaments, with the same team name but different players. */}
+          {Object.entries(teams.reduce<Record<string, Team[]>>((acc, t) => {
+            const k = t.tournament_id
+            acc[k] = [...(acc[k] || []), t]
+            return acc
+          }, {})).sort(([a], [b]) => (a ? 0 : 1) - (b ? 0 : 1)).map(([tourId, group]) => {
+            const tour = tournaments.find((x) => x.id === tourId)
+            return (
+          <div key={tourId || 'saved'} className="space-y-2">
+            <p className="text-[11px] font-bold uppercase tracking-widest text-dark-500 pt-1">
+              {tourId ? (tour?.name ?? 'Website tournament') : 'Saved teams'}
+              {tour?.status === 'completed' && <span className="ml-1.5 normal-case tracking-normal font-semibold text-dark-600">· completed</span>}
+            </p>
+          {group.map((t) => (
             <div key={t.id} className="flex items-center gap-3 p-2.5 rounded-xl bg-dark-850 border border-dark-800">
               {t.logo_url
                 ? <img src={t.logo_url} alt="" className="h-9 w-9 rounded-lg object-cover shrink-0" />
@@ -124,6 +140,9 @@ export function TeamsControl() {
               </button>
             </div>
           ))}
+          </div>
+            )
+          })}
         </div>
       )}
 
