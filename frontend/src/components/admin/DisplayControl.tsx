@@ -171,7 +171,7 @@ export function DisplayControl({ matches, screen, courts = [], onPushed }: Props
 
       {source === 'manual' && (<>
       {/* Mode buttons */}
-      <div className="grid grid-cols-5 gap-2">
+      <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
         {MODES.map(({ mode: m, label, icon: Icon, desc }) => {
           const active = mode === m
           return (
@@ -181,7 +181,7 @@ export function DisplayControl({ matches, screen, courts = [], onPushed }: Props
               title={desc}
               aria-pressed={active}
               className={clsx(
-                'group relative flex flex-col items-center gap-2 py-3.5 rounded-xl border text-xs font-semibold',
+                'group relative flex flex-col items-center gap-2 py-3.5 px-1 rounded-xl border text-xs font-semibold text-center leading-tight min-w-0',
                 'transition-all duration-200 active:scale-95',
                 active
                   ? 'border-brand-500 bg-brand-500/15 text-brand-200 shadow-glow-brand'
@@ -231,12 +231,17 @@ export function DisplayControl({ matches, screen, courts = [], onPushed }: Props
                     {isSelected ? selected.indexOf(m.id) + 1 : '·'}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: m.team_a_color }} />
-                      <span className="text-sm font-medium text-dark-100 truncate">{m.team_a}</span>
+                    {/* Wraps instead of cutting names to one letter on narrow phones */}
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <span className="flex items-center gap-2 min-w-0 max-w-full">
+                        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: m.team_a_color }} />
+                        <span className="text-sm font-medium text-dark-100 truncate">{m.team_a}</span>
+                      </span>
                       <span className="text-dark-600 text-xs">vs</span>
-                      <span className="text-sm font-medium text-dark-100 truncate">{m.team_b}</span>
-                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: m.team_b_color }} />
+                      <span className="flex items-center gap-2 min-w-0 max-w-full">
+                        <span className="text-sm font-medium text-dark-100 truncate">{m.team_b}</span>
+                        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: m.team_b_color }} />
+                      </span>
                     </div>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-xs text-dark-500">{m.court_name}</span>

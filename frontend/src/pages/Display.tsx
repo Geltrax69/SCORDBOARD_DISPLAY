@@ -346,7 +346,7 @@ export default function Display() {
 
   // ── WS connection ─────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!token) return
+    if (!token || screenMissing) return
     const path = singleMatchId ? `/ws/match/${singleMatchId}` : '/ws/global'
     let url = `${WS_BASE}${path}?token=${encodeURIComponent(token)}`
     if (screen) url += `&screen=${encodeURIComponent(screen)}`
@@ -354,7 +354,7 @@ export default function Display() {
 
     const unsub = scoreboardWS.subscribe((msg: WSMessage) => handleWSRef.current(msg))
     return () => { unsub(); scoreboardWS.disconnect() }
-  }, [token, singleMatchId, screen, setWsStatus])
+  }, [token, singleMatchId, screen, screenMissing, setWsStatus])
 
   // Identify flash clears itself after a few seconds.
   useEffect(() => {
@@ -420,9 +420,9 @@ export default function Display() {
       {/* Identify — big screen name so staff can find which TV this is */}
       {identifyName && (
         <div className="fixed inset-0 z-[90] flex flex-col items-center justify-center bg-dark-950/95 backdrop-blur-md pointer-events-none">
-          <p className="text-brand-300 uppercase tracking-[0.3em] font-black" style={{ fontSize: 'clamp(1rem,2.5vw,2rem)' }}>This screen is</p>
-          <p className="text-white font-black leading-none mt-4 text-center px-8" style={{ fontSize: 'clamp(3rem,10vw,9rem)' }}>{identifyName}</p>
-          {screen && <p className="text-dark-400 font-mono mt-6" style={{ fontSize: 'clamp(0.9rem,1.6vw,1.4rem)' }}>?screen={screen}</p>}
+          <p className="text-brand-300 uppercase tracking-[0.3em] font-black" style={{ fontSize: 'clamp(1rem,2.5vw,5rem)' }}>This screen is</p>
+          <p className="text-white font-black leading-none mt-4 text-center px-8" style={{ fontSize: 'clamp(3rem,10vw,22rem)' }}>{identifyName}</p>
+          {screen && <p className="text-dark-400 font-mono mt-6" style={{ fontSize: 'clamp(0.9rem,1.6vw,3.5rem)' }}>?screen={screen}</p>}
         </div>
       )}
 

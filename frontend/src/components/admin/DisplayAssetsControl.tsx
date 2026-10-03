@@ -88,12 +88,12 @@ export function DisplayAssetsControl() {
         ]).map(({ id, label, icon: Icon }) => (
           <button key={id} onClick={() => { setTab(id); resetForm() }}
             className={clsx(
-              'flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-semibold transition-all active:scale-95',
+              'flex items-center justify-center gap-2 py-2.5 px-2 rounded-xl border text-sm font-semibold transition-all active:scale-95 min-w-0',
               tab === id
                 ? 'border-brand-500 bg-brand-500/15 text-brand-200'
                 : 'border-dark-600 bg-dark-800 text-dark-400 hover:text-dark-100 hover:border-brand-500/40',
             )}>
-            <Icon size={16} /> {label}
+            <Icon size={16} className="flex-shrink-0" /> <span className="truncate">{label}</span>
           </button>
         ))}
       </div>

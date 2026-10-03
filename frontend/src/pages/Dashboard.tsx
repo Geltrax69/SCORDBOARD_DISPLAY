@@ -567,7 +567,7 @@ export default function Dashboard() {
         {/* ── Display: one job, previously split across two panels ── */}
         {tab === 'display' && isSuperAdmin && (
           <div className="space-y-6">
-            <div className="card-hi p-5"><ScreensPanel matches={matches} courts={courts} tournaments={tournaments} displayUrl={serverInfo?.display_url} /></div>
+            <div className="card-hi p-3 sm:p-5"><ScreensPanel matches={matches} courts={courts} tournaments={tournaments} displayUrl={serverInfo?.display_url} /></div>
             <div className="card-hi p-5"><DisplayAssetsControl /></div>
           </div>
         )}

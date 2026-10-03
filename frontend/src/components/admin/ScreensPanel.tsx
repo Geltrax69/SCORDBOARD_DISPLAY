@@ -203,7 +203,7 @@ function ScreenCard({ screen, link, matches, courts, open, onToggle, onChanged, 
 
   return (
     <div className={clsx(
-      'rounded-xl border bg-dark-850 p-4 space-y-3 transition-colors',
+      'rounded-xl border bg-dark-850 p-3 sm:p-4 space-y-3 transition-colors min-w-0',
       open ? 'border-brand-500/60' : 'border-dark-700',
     )}>
       {/* Name + status */}
