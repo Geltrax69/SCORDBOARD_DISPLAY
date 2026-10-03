@@ -125,7 +125,7 @@ func (r *MatchRepo) List(tournamentID, userID string, all bool) ([]models.Match,
 	}
 	if !all {
 		args = append(args, userID)
-		where = append(where, fmt.Sprintf("t.created_by = $%d", len(args)))
+		where = append(where, fmt.Sprintf("(t.created_by = $%d OR t.external_id IS NOT NULL)", len(args)))
 	}
 	if len(where) > 0 {
 		query += ` WHERE ` + strings.Join(where, " AND ")

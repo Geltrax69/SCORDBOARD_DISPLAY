@@ -31,14 +31,15 @@ type User struct {
 }
 
 type Tournament struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Sport     string    `json:"sport"`
-	EventType string    `json:"event_type"` // regu | double | quad
-	Status    string    `json:"status"`
-	CreatedBy string    `json:"created_by"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	Sport      string    `json:"sport"`
+	EventType  string    `json:"event_type"` // regu | double | quad
+	Status     string    `json:"status"`
+	ExternalID string    `json:"external_id"` // website tournament id when synced
+	CreatedBy  string    `json:"created_by"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 type Court struct {
@@ -120,6 +121,12 @@ type Team struct {
 	CreatedAt time.Time    `json:"created_at"`
 	UpdatedAt time.Time    `json:"updated_at"`
 	Players   []TeamPlayer `json:"players"`
+
+	// Set on teams synced from the website (empty for hand-made teams).
+	TournamentID string `json:"tournament_id"`
+	ExternalID   string `json:"external_id"`
+	District     string `json:"district"`
+	EventType    string `json:"event_type"`
 }
 
 type TeamPlayer struct {
@@ -278,9 +285,8 @@ const (
 	EventRoundStart        = "round_start"        // controller starts the next round
 )
 
-// All sets play to 15 (cap 17). deuceAt (14) is the score at which serve and the
-// win condition switch to "win by 2 / first to cap": at 14-14 it's deuce and the
-// first team to 17 wins.
+// All sets play to 15. deuceAt (14): once both teams reach 14-14 it's deuce and
+// the set goes to whoever reaches 17 first (no win-by-2: 16-14 does not win).
 // Event formats. A round is always best-of-3 sets; the format decides how many
 // rounds make a match.
 const (
@@ -306,10 +312,10 @@ func setLimits(setIdx int) (target, capPts, deuceAt int) {
 	return 15, 17, 14
 }
 
-// setWon reports whether score x beats y under sepak takraw rules: reach target
-// with a 2-point lead, or be first to the cap.
-func setWon(x, y, target, capPts int) bool {
-	return (x >= target && x-y >= 2) || x >= capPts
+// setWon reports whether score x beats y: reach target before the opponent hits
+// deuceAt, otherwise (after deuceAt-all) be first to the cap.
+func setWon(x, y, target, capPts, deuceAt int) bool {
+	return x >= capPts || (x >= target && y < deuceAt)
 }
 
 type ScorePayload struct {
@@ -449,9 +455,9 @@ func CalculateStateFor(events []Event, eventType string) MatchState {
 	setIdx := 0
 	matchOver := false
 	closeSet := func(at time.Time) {
-		target, capPts, _ := setLimits(setIdx)
+		target, capPts, deuceAt := setLimits(setIdx)
 		a, b := state.ScoreA, state.ScoreB
-		if !setWon(a, b, target, capPts) && !setWon(b, a, target, capPts) {
+		if !setWon(a, b, target, capPts, deuceAt) && !setWon(b, a, target, capPts, deuceAt) {
 			return
 		}
 		state.CompletedSets = append(state.CompletedSets, [2]int{a, b})
@@ -700,7 +706,7 @@ func CalculateStateFor(events []Event, eventType string) MatchState {
 			}
 			return roundsSelf+1 > roundsOpp+remaining
 		}
-		if setWon(state.ScoreA+1, state.ScoreB, target, capPts) {
+		if setWon(state.ScoreA+1, state.ScoreB, target, capPts, deuceAt) {
 			state.SetPoint = "A"
 			if state.SetsA == 1 {
 				state.RoundPoint = "A"
@@ -708,7 +714,7 @@ func CalculateStateFor(events []Event, eventType string) MatchState {
 					state.MatchPoint = "A"
 				}
 			}
-		} else if setWon(state.ScoreB+1, state.ScoreA, target, capPts) {
+		} else if setWon(state.ScoreB+1, state.ScoreA, target, capPts, deuceAt) {
 			state.SetPoint = "B"
 			if state.SetsB == 1 {
 				state.RoundPoint = "B"

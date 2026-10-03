@@ -5,6 +5,7 @@ import { useAuthStore } from '@/store/authStore'
 import { useMatchStore } from '@/store/matchStore'
 import { useWSStore } from '@/store/wsStore'
 import { useWebSocket } from '@/hooks/useWebSocket'
+import { scoreboardWS } from '@/services/websocket'
 import { listTournaments, listMatches, listCourts, createTournament, createCourt, createMatch, updateMatchStatus, deleteMatch, uploadTeamLogo, listTeams } from '@/services/api'
 import { useToastStore } from '@/store/toastStore'
 import { Modal } from '@/components/common/Modal'
@@ -229,6 +230,13 @@ export default function Dashboard() {
 
   useWebSocket()
 
+  // Website sync pushes `website_sync` when tournaments/teams change — refresh live.
+  useEffect(() => scoreboardWS.subscribe((msg) => {
+    if (msg.type !== 'website_sync') return
+    listTournaments().then(setTournaments).catch(() => {})
+    listTeams().then(setSavedTeams).catch(() => {})
+  }), [setTournaments])
+
   useEffect(() => {
     Promise.all([listTournaments(), listMatches(), listCourts()]).then(([ts, ms, cs]) => {
       setTournaments(ts); setMatches(ms); setCourts(cs); setLoading(false)
@@ -236,6 +244,14 @@ export default function Dashboard() {
     listTeams().then(setSavedTeams).catch(() => {})
     fetchServerInfo()
   }, [fetchServerInfo, setCourts, setMatches, setTournaments])
+
+  // Website-synced teams belong to one tournament; hand-made teams fit any.
+  const matchTeams = savedTeams.filter((t) => !t.tournament_id || t.tournament_id === matchForm.tournament_id)
+  const teamsByDistrict = matchTeams.reduce<Record<string, Team[]>>((acc, t) => {
+    const k = t.district || 'Saved teams'
+    ;(acc[k] ||= []).push(t)
+    return acc
+  }, {})
 
   const isSuperAdmin  = user?.role === 'super_admin'
   const activeMatches = matches.filter((m) => m.status === 'active' || m.status === 'timeout')
@@ -350,7 +366,7 @@ export default function Dashboard() {
 
   // Picking a saved team fills in its name, colors, logo and whole roster.
   const applyTeam = (side: 'A' | 'B', teamId: string) => {
-    const t = savedTeams.find((x) => x.id === teamId)
+    const t = matchTeams.find((x) => x.id === teamId)
     const setPlayers = side === 'A' ? setPlayersA : setPlayersB
     if (!t) {
       setMatchForm((f) => ({ ...f, [`team_${side.toLowerCase()}`]: '' }))
@@ -371,7 +387,10 @@ export default function Dashboard() {
   const openMatchModal = () => {
     resetMatchForm()
     setMatchModal(true)
+    // Website sync runs in the background — pull fresh tournaments and teams.
     listTeams().then(setSavedTeams).catch(() => {})
+    listTournaments().then(setTournaments).catch(() => {})
+    listCourts().then(setCourts).catch(() => {})
   }
 
   const resetMatchForm = () => {
@@ -707,7 +726,7 @@ export default function Dashboard() {
             <label className="block text-xs font-semibold text-dark-400 uppercase tracking-wider mb-1.5">Tournament *</label>
             <select value={courtTourId} onChange={(e) => setCourtTourId(e.target.value)} className={selectCls}>
               <option value="">Select tournament…</option>
-              {tournaments.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              {tournaments.map((t) => <option key={t.id} value={t.id}>{t.name}{t.external_id ? ' · website' : ''}</option>)}
             </select>
             {tournaments.length === 0 && <p className="text-xs text-timeout mt-1">Create a tournament first</p>}
           </div>
@@ -786,7 +805,7 @@ export default function Dashboard() {
                   <label className="block text-xs font-semibold text-dark-400 uppercase tracking-wider mb-2">Tournament *</label>
                   <select value={matchForm.tournament_id} onChange={(e) => setMatchForm(f => ({ ...f, tournament_id: e.target.value, court_id: '' }))} className={selectCls}>
                     <option value="">Select tournament…</option>
-                    {tournaments.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    {tournaments.map((t) => <option key={t.id} value={t.id}>{t.name}{t.external_id ? ' · website' : ''}</option>)}
                   </select>
                   {tournaments.length === 0 && <p className="text-xs text-timeout mt-1.5">Create a tournament first</p>}
                 </div>
@@ -810,15 +829,19 @@ export default function Dashboard() {
                 {(['A', 'B'] as const).map((side) => {
                   const nameKey = side === 'A' ? 'team_a' : 'team_b'
                   const name    = matchForm[nameKey]
-                  const picked  = savedTeams.find((t) => t.name === name)
+                  const picked  = matchTeams.find((t) => t.name === name)
                   return (
                     <div key={side}>
                       <label className="block text-xs font-semibold text-dark-400 uppercase tracking-wider mb-2">Team {side} *</label>
-                      {savedTeams.length > 0 && (
+                      {matchTeams.length > 0 && (
                         <select value={picked?.id ?? ''} onChange={(e) => applyTeam(side, e.target.value)} className={selectCls + ' mb-2'}>
-                          <option value="">Saved team… (or type below)</option>
-                          {savedTeams.map((t) => (
-                            <option key={t.id} value={t.id}>{t.name} · {t.players.length} player{t.players.length === 1 ? '' : 's'}</option>
+                          <option value="">Registered team… (or type below)</option>
+                          {Object.entries(teamsByDistrict).map(([district, ts]) => (
+                            <optgroup key={district} label={district}>
+                              {ts.map((t) => (
+                                <option key={t.id} value={t.id}>{t.name} · {t.players.length} player{t.players.length === 1 ? '' : 's'}</option>
+                              ))}
+                            </optgroup>
                           ))}
                         </select>
                       )}
@@ -986,7 +1009,7 @@ export default function Dashboard() {
               const color  = isA ? matchForm.team_a_color : matchForm.team_b_color
               const squad  = isA ? playersA : playersB
               const setSquad = isA ? setPlayersA : setPlayersB
-              const roster = savedTeams.find((t) => t.name === (isA ? matchForm.team_a : matchForm.team_b))?.players
+              const roster = matchTeams.find((t) => t.name === (isA ? matchForm.team_a : matchForm.team_b))?.players
               const editor = <PlayersForm key={activeTeam} teamColor={color} players={squad} onChange={setSquad} token={token ?? ''} />
               if (!roster?.length) return <div className="min-h-[200px]">{editor}</div>
               return (

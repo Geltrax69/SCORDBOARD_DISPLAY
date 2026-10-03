@@ -20,6 +20,7 @@ export interface Tournament {
   event_type: EventFormat
   status: 'active' | 'completed' | 'cancelled'
   created_by: string
+  external_id: string // website tournament id when synced
   created_at: string
   updated_at: string
 }
@@ -169,7 +170,7 @@ export interface DisplayAsset {
 }
 
 export interface WSMessage {
-  type: EventType | 'connected'
+  type: EventType | 'connected' | 'website_sync'
   match_id?: string
   payload: {
     match?: Match
@@ -237,6 +238,11 @@ export interface Team {
   created_at: string
   updated_at: string
   players: TeamPlayer[]
+  // Set on teams synced from the website; empty on hand-made teams.
+  tournament_id: string
+  external_id: string
+  district: string
+  event_type: string
 }
 
 export interface DeviceInfo {

@@ -14,6 +14,11 @@ type Config struct {
 	JWTSecret   string
 	Environment string
 	CORSOrigins string
+
+	// Website bridge: sync is off unless WEBSITE_API_URL and WEBSITE_API_KEY are set.
+	WebsiteAPIURL       string
+	WebsiteAPIKey       string
+	WebsiteSyncInterval int // seconds
 }
 
 func Load() (*Config, error) {
@@ -24,6 +29,10 @@ func Load() (*Config, error) {
 		JWTSecret:   mustEnv("JWT_SECRET"),
 		Environment: getEnv("ENVIRONMENT", "development"),
 		CORSOrigins: getEnv("CORS_ORIGINS", "*"),
+
+		WebsiteAPIURL:       os.Getenv("WEBSITE_API_URL"),
+		WebsiteAPIKey:       os.Getenv("WEBSITE_API_KEY"),
+		WebsiteSyncInterval: getEnvInt("WEBSITE_SYNC_INTERVAL", 30),
 	}
 
 	cfg.DatabaseURL = buildDatabaseURL()

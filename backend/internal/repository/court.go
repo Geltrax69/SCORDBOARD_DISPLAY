@@ -58,7 +58,7 @@ func (r *CourtRepo) List(userID string, all bool) ([]models.Court, error) {
 	      FROM courts c JOIN tournaments t ON t.id = c.tournament_id`
 	var args []interface{}
 	if !all {
-		q += ` WHERE t.created_by = $1`
+		q += ` WHERE t.created_by = $1 OR t.external_id IS NOT NULL`
 		args = append(args, userID)
 	}
 	q += ` ORDER BY c.name`
