@@ -37,6 +37,9 @@ services:
       JWT_SECRET:      ${JWT_SECRET:?set a long random JWT_SECRET in .env}
       CORS_ORIGINS:    ${PUBLIC_BASE_URL}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}   # e.g. https://scorecast.simpedu.in → drives QR/connect/display links
+      WEBSITE_API_URL:       ${WEBSITE_API_URL:-}      # website backend, e.g. https://sports-backend-fgsp.onrender.com
+      WEBSITE_API_KEY:       ${WEBSITE_API_KEY:-}      # must equal INTEGRATION_API_KEY on the website backend
+      WEBSITE_SYNC_INTERVAL: ${WEBSITE_SYNC_INTERVAL:-30}
     volumes:
       - uploads_data:/app/uploads           # persist sponsor/player media across rebuilds
     depends_on:

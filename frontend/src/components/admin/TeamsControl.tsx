@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Users, Plus, Trash2, Pencil, Loader, Upload, X, Image as ImageIcon } from 'lucide-react'
 import { listTeams, createTeam, updateTeam, deleteTeam, uploadTeamLogo } from '@/services/api'
+import { scoreboardWS } from '@/services/websocket'
 import { useAuthStore } from '@/store/authStore'
 import { Modal } from '@/components/common/Modal'
 import { PlayersForm } from '@/components/admin/PlayersForm'
@@ -33,6 +34,8 @@ export function TeamsControl() {
     try { setTeams(await listTeams()) } finally { setLoading(false) }
   }
   useEffect(() => { load() }, [])
+  // Refresh when the website sync adds/changes/removes teams.
+  useEffect(() => scoreboardWS.subscribe((msg) => { if (msg.type === 'website_sync') load() }), [])
 
   const openNew = () => {
     setEditing(null); setForm(blankForm); setPlayers([]); setError(''); setOpen(true)
@@ -110,6 +113,7 @@ export function TeamsControl() {
                   {t.players.length} player{t.players.length === 1 ? '' : 's'}
                   {' · '}{t.players.filter((p) => p.gender.toLowerCase() === 'male').length} M
                   {' · '}{t.players.filter((p) => p.gender.toLowerCase() === 'female').length} F
+                  {t.external_id && <>{' · '}<span className="text-brand-400">{t.district || 'Website'} · synced</span></>}
                 </p>
               </button>
               <button onClick={() => openEdit(t)} className="p-1.5 rounded-lg text-dark-400 hover:text-brand-400 hover:bg-dark-800 transition-colors" title="Edit">

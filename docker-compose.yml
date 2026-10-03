@@ -38,6 +38,9 @@ services:
       DB_SSLMODE:   disable
       JWT_SECRET:   ${JWT_SECRET:-change_this_secret_in_production_min_32_chars}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      WEBSITE_API_URL:       ${WEBSITE_API_URL:-}      # website backend, e.g. https://sports-backend-fgsp.onrender.com
+      WEBSITE_API_KEY:       ${WEBSITE_API_KEY:-}      # must equal INTEGRATION_API_KEY on the website backend
+      WEBSITE_SYNC_INTERVAL: ${WEBSITE_SYNC_INTERVAL:-30}
     volumes:
       - uploads_data:/app/uploads
     depends_on:

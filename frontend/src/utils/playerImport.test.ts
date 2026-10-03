@@ -29,6 +29,7 @@ describe('parsePlayerImport', () => {
   it('excludes case-insensitive duplicates in the file and existing team', async () => {
     const existing: Team[] = [{
       id: 'team-1', name: 'District A', color: '#000000', logo_url: '', created_at: '', updated_at: '',
+      tournament_id: '', external_id: '', district: '', event_type: '',
       players: [{ id: 'p1', team_id: 'team-1', name: 'Existing Player', gender: 'Male', jersey_number: 8, status: 'playing', photo_url: '' }],
     }]
     const file = csvFile(`${header}\n1,Alice,Female,District A,approved\n2, alice ,Female,District A,approved\n3,EXISTING PLAYER,Male,district a,approved`)

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -83,6 +84,14 @@ func main() {
 	uploadH := handlers.NewUploadHandler(uploadDir, "/uploads")
 	assetH := handlers.NewAssetHandler(assetRepo, hub)
 	teamH := handlers.NewTeamHandler(repository.NewTeamRepo(database))
+
+	if cfg.WebsiteAPIURL != "" && cfg.WebsiteAPIKey != "" {
+		sync := services.NewWebsiteSync(database, cfg.WebsiteAPIURL, cfg.WebsiteAPIKey, uploadDir, func() {
+			hub.BroadcastGlobal(models.WSMessage{Type: "website_sync", Payload: json.RawMessage(`{}`)})
+		})
+		go sync.Run(time.Duration(cfg.WebsiteSyncInterval) * time.Second)
+		log.Printf("[website-sync] syncing from %s every %ds", cfg.WebsiteAPIURL, cfg.WebsiteSyncInterval)
+	}
 
 	if cfg.Environment == "production" {
 		gin.SetMode(gin.ReleaseMode)

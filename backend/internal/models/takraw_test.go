@@ -45,11 +45,23 @@ func TestSetWinAndReset(t *testing.T) {
 	}
 }
 
-func TestDeuceWinByTwo(t *testing.T) {
-	// 14-14 (all point) then A scores 2 -> 16-14, a 2-point lead wins the set.
+func TestDeuceFirstTo17(t *testing.T) {
+	// 14-14 (deuce) then A scores 2 -> 16-14 does NOT win; first to 17 does.
 	st := CalculateState(points(alt(28) + "aa"))
-	if len(st.CompletedSets) != 1 || st.CompletedSets[0] != [2]int{16, 14} {
-		t.Fatalf("completed set = %v, want [16 14]", st.CompletedSets)
+	if len(st.CompletedSets) != 0 || st.ScoreA != 16 || st.ScoreB != 14 {
+		t.Fatalf("after 16-14: sets=%v score=%d-%d, want set still live", st.CompletedSets, st.ScoreA, st.ScoreB)
+	}
+	st = CalculateState(points(alt(28) + "aaa"))
+	if len(st.CompletedSets) != 1 || st.CompletedSets[0] != [2]int{17, 14} {
+		t.Fatalf("completed set = %v, want [17 14]", st.CompletedSets)
+	}
+}
+
+func TestWinAt15BeforeDeuce(t *testing.T) {
+	// 13-13 then A scores 2 -> 15-13 wins (B never reached 14).
+	st := CalculateState(points(alt(26) + "aa"))
+	if len(st.CompletedSets) != 1 || st.CompletedSets[0] != [2]int{15, 13} {
+		t.Fatalf("completed set = %v, want [15 13]", st.CompletedSets)
 	}
 }
 

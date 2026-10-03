@@ -22,8 +22,9 @@ func NewTeamRepo(db *sql.DB) *TeamRepo {
 // List returns every team with its roster attached, in one pass over each table.
 func (r *TeamRepo) List() ([]models.Team, error) {
 	rows, err := r.db.Query(
-		`SELECT id, name, color, logo_url, COALESCE(created_by::text,''), created_at, updated_at
-		 FROM teams ORDER BY name`)
+		`SELECT id, name, color, logo_url, COALESCE(created_by::text,''), created_at, updated_at,
+		        COALESCE(tournament_id::text,''), COALESCE(external_id,''), district, event_type
+		 FROM teams ORDER BY district, name`)
 	if err != nil {
 		return nil, err
 	}
@@ -33,7 +34,8 @@ func (r *TeamRepo) List() ([]models.Team, error) {
 	byID := map[string]int{}
 	for rows.Next() {
 		var t models.Team
-		if err := rows.Scan(&t.ID, &t.Name, &t.Color, &t.LogoURL, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.Color, &t.LogoURL, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt,
+			&t.TournamentID, &t.ExternalID, &t.District, &t.EventType); err != nil {
 			return nil, err
 		}
 		t.Players = []models.TeamPlayer{}
@@ -146,7 +148,7 @@ func (r *TeamRepo) Import(req models.TeamImportRequest, createdBy string) (*mode
 		var teamID string
 		err := tx.QueryRow(
 			`SELECT id::text FROM teams
-			 WHERE LOWER(TRIM(name)) = LOWER(TRIM($1))
+			 WHERE external_id IS NULL AND LOWER(TRIM(name)) = LOWER(TRIM($1))
 			 LIMIT 1 FOR UPDATE`, input.Name,
 		).Scan(&teamID)
 		switch {
