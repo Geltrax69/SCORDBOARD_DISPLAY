@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { clsx } from 'clsx'
-import { Tv, Plus, Copy, Check, Radar, Trash2, Pencil, SlidersHorizontal, ChevronUp } from 'lucide-react'
+import { Tv, Plus, Copy, Check, Radar, Trash2, Pencil, SlidersHorizontal, ChevronUp, MapPin } from 'lucide-react'
 import { Button } from '@/components/common/Button'
 import { DisplayControl } from '@/components/admin/DisplayControl'
 import {
@@ -8,10 +8,12 @@ import {
   deleteDisplayScreen, identifyDisplayScreen,
 } from '@/services/api'
 import { useToastStore } from '@/store/toastStore'
-import type { DisplayScreen, Match } from '@/types'
+import type { Court, DisplayScreen, Match, Tournament } from '@/types'
 
 interface Props {
   matches: Match[]
+  courts: Court[]
+  tournaments: Tournament[]
   /** Base display URL from server-info (LAN IP or public domain). */
   displayUrl?: string
 }
@@ -28,7 +30,7 @@ const errorMessage = (err: unknown) =>
   (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Please try again'
 
 /** Every TV as its own control card: open /display?screen=<slug> once, then drive it from here. */
-export function ScreensPanel({ matches, displayUrl }: Props) {
+export function ScreensPanel({ matches, courts, tournaments, displayUrl }: Props) {
   const toast = useToastStore()
   const [screens, setScreens] = useState<DisplayScreen[]>([])
   const [loading, setLoading] = useState(true)
@@ -46,6 +48,15 @@ export function ScreensPanel({ matches, displayUrl }: Props) {
     const t = setInterval(load, 5000)
     return () => clearInterval(t)
   }, [load])
+
+  // Court names repeat across tournaments ("Court A"), so add the tournament
+  // when there is more than one.
+  const courtOptions = courts.map((c) => ({
+    id: c.id,
+    label: tournaments.length > 1
+      ? `${c.name} · ${tournaments.find((t) => t.id === c.tournament_id)?.name ?? ''}`.replace(/ · $/, '')
+      : c.name,
+  }))
 
   const base = (displayUrl || `${window.location.origin}/display`).replace(/\/$/, '')
   const linkFor = (s: DisplayScreen) => (s.slug === 'main' ? base : `${base}?screen=${s.slug}`)
@@ -105,6 +116,7 @@ export function ScreensPanel({ matches, displayUrl }: Props) {
               screen={s}
               link={linkFor(s)}
               matches={matches}
+              courts={courtOptions}
               open={openSlug === s.slug}
               onToggle={() => setOpenSlug((cur) => (cur === s.slug ? null : s.slug))}
               onChanged={replace}
@@ -121,13 +133,14 @@ interface CardProps {
   screen: DisplayScreen
   link: string
   matches: Match[]
+  courts: { id: string; label: string }[]
   open: boolean
   onToggle: () => void
   onChanged: (s: DisplayScreen) => void
   onDeleted: () => void
 }
 
-function ScreenCard({ screen, link, matches, open, onToggle, onChanged, onDeleted }: CardProps) {
+function ScreenCard({ screen, link, matches, courts, open, onToggle, onChanged, onDeleted }: CardProps) {
   const toast = useToastStore()
   const [copied, setCopied] = useState(false)
   const [renaming, setRenaming] = useState(false)
@@ -135,13 +148,17 @@ function ScreenCard({ screen, link, matches, open, onToggle, onChanged, onDelete
   const online = screen.online > 0
   const isMain = screen.slug === 'main'
 
+  const followed = screen.follow_court_id
+    ? courts.find((c) => c.id === screen.follow_court_id)?.label ?? 'a court'
+    : null
+
   const showing = screen.mode >= 4
     ? MODE_LABEL[screen.mode]
     : screen.match_ids
         .map((id) => matches.find((m) => m.id === id))
         .filter(Boolean)
         .map((m) => `${m!.team_a} vs ${m!.team_b}`)
-        .join(' · ') || (isMain ? 'All open matches' : 'Nothing assigned')
+        .join(' · ') || (followed ? 'No upcoming matches' : isMain ? 'All open matches' : 'Nothing assigned')
 
   const copy = async () => {
     try {
@@ -222,9 +239,15 @@ function ScreenCard({ screen, link, matches, open, onToggle, onChanged, onDelete
       </div>
 
       {/* What it shows */}
-      <div className="text-xs">
-        <span className="text-dark-500">{MODE_LABEL[screen.mode]} · </span>
-        <span className="text-dark-200">{showing}</span>
+      <div className="text-xs flex items-center gap-1 min-w-0">
+        {followed ? (
+          <span className="flex items-center gap-1 text-brand-300 flex-shrink-0">
+            <MapPin size={12} /> Follows {followed} ·
+          </span>
+        ) : (
+          <span className="text-dark-500 flex-shrink-0">{MODE_LABEL[screen.mode]} · </span>
+        )}
+        <span className="text-dark-200 truncate">{showing}</span>
       </div>
 
       {/* TV link */}
@@ -264,7 +287,7 @@ function ScreenCard({ screen, link, matches, open, onToggle, onChanged, onDelete
 
       {open && (
         <div className="pt-3 border-t border-dark-800">
-          <DisplayControl matches={matches} screen={screen} onPushed={onChanged} />
+          <DisplayControl matches={matches} screen={screen} courts={courts} onPushed={onChanged} />
         </div>
       )}
     </div>

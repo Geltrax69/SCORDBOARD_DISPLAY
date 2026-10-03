@@ -201,6 +201,10 @@ export const deleteDisplayScreen = (slug: string) =>
 export const setScreenLayout = (slug: string, layout: DisplayLayoutPayload) =>
   api.post<DisplayScreen>(`/display/screens/${slug}/layout`, layout).then((r) => r.data)
 
+/** Follow a court (its live match, else next pending); '' stops following. */
+export const followCourt = (slug: string, court_id: string, show_player_animation = false) =>
+  api.post<DisplayScreen>(`/display/screens/${slug}/follow`, { court_id, show_player_animation }).then((r) => r.data)
+
 export const identifyDisplayScreen = (slug: string) =>
   api.post(`/display/screens/${slug}/identify`)
 

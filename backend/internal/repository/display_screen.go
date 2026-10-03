@@ -18,12 +18,12 @@ func NewDisplayScreenRepo(db *sql.DB) *DisplayScreenRepo {
 	return &DisplayScreenRepo{db: db}
 }
 
-const screenColumns = `slug, name, mode, match_ids, show_player_animation, updated_at`
+const screenColumns = `slug, name, mode, match_ids, show_player_animation, COALESCE(follow_court_id::text, ''), updated_at`
 
 func scanScreen(row interface{ Scan(...any) error }) (*models.DisplayScreen, error) {
 	var s models.DisplayScreen
 	var ids pq.StringArray
-	if err := row.Scan(&s.Slug, &s.Name, &s.Mode, &ids, &s.ShowPlayerAnimation, &s.UpdatedAt); err != nil {
+	if err := row.Scan(&s.Slug, &s.Name, &s.Mode, &ids, &s.ShowPlayerAnimation, &s.FollowCourtID, &s.UpdatedAt); err != nil {
 		return nil, err
 	}
 	s.MatchIDs = []string(ids)
@@ -87,7 +87,8 @@ func (r *DisplayScreenRepo) Rename(slug, name string) (*models.DisplayScreen, er
 	return s, err
 }
 
-// SetLayout returns nil, nil when the screen does not exist.
+// SetLayout saves a layout picked by hand, which also stops any court-follow.
+// It returns nil, nil when the screen does not exist.
 func (r *DisplayScreenRepo) SetLayout(slug string, layout models.DisplayLayoutPayload) (*models.DisplayScreen, error) {
 	ids := layout.MatchIDs
 	if ids == nil {
@@ -95,13 +96,75 @@ func (r *DisplayScreenRepo) SetLayout(slug string, layout models.DisplayLayoutPa
 	}
 	s, err := scanScreen(r.db.QueryRow(
 		`UPDATE display_screens
-		 SET mode = $2, match_ids = $3, show_player_animation = $4, updated_at = NOW()
+		 SET mode = $2, match_ids = $3, show_player_animation = $4, follow_court_id = NULL, updated_at = NOW()
 		 WHERE slug = $1
 		 RETURNING `+screenColumns, slug, layout.Mode, pq.Array(ids), layout.ShowPlayerAnimation))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	return s, err
+}
+
+// SetFollow makes a screen follow a court ("" stops following and keeps the
+// current layout). It returns nil, nil when the screen does not exist.
+func (r *DisplayScreenRepo) SetFollow(slug, courtID string, showPlayerAnimation bool) (*models.DisplayScreen, error) {
+	s, err := scanScreen(r.db.QueryRow(
+		`UPDATE display_screens
+		 SET follow_court_id = NULLIF($2, '')::uuid, show_player_animation = $3, updated_at = NOW()
+		 WHERE slug = $1
+		 RETURNING `+screenColumns, slug, courtID, showPlayerAnimation))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return s, err
+}
+
+// SetFollowedMatch stores the match a court-following screen switched to,
+// without touching its follow setting. Empty matchID = nothing to show.
+func (r *DisplayScreenRepo) SetFollowedMatch(slug, matchID string) error {
+	ids := []string{}
+	if matchID != "" {
+		ids = append(ids, matchID)
+	}
+	_, err := r.db.Exec(
+		`UPDATE display_screens SET mode = 1, match_ids = $2, updated_at = NOW() WHERE slug = $1`,
+		slug, pq.Array(ids))
+	return err
+}
+
+// FollowingCourt returns the screens that follow the given court.
+func (r *DisplayScreenRepo) FollowingCourt(courtID string) ([]models.DisplayScreen, error) {
+	rows, err := r.db.Query(`SELECT `+screenColumns+` FROM display_screens WHERE follow_court_id = $1`, courtID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	screens := []models.DisplayScreen{}
+	for rows.Next() {
+		s, err := scanScreen(rows)
+		if err != nil {
+			return nil, err
+		}
+		screens = append(screens, *s)
+	}
+	return screens, rows.Err()
+}
+
+// CourtCurrentMatch picks what a court-following screen shows: the court's
+// live match (active, timeout or paused), otherwise its next pending match in
+// the order they were created. "" means the court has nothing left to play.
+func (r *DisplayScreenRepo) CourtCurrentMatch(courtID string) (string, error) {
+	var id string
+	err := r.db.QueryRow(
+		`SELECT id FROM matches
+		 WHERE court_id = $1 AND status IN ('active', 'timeout', 'paused', 'pending')
+		 ORDER BY (status = 'pending'), created_at, id
+		 LIMIT 1`, courtID).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return id, err
 }
 
 func (r *DisplayScreenRepo) Delete(slug string) (bool, error) {

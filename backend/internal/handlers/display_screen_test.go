@@ -29,7 +29,7 @@ func TestSlugify(t *testing.T) {
 // These requests are all rejected before the database is touched.
 func TestScreenHandlerRejectsInvalidRequests(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	h := NewScreenHandler(&repository.DisplayScreenRepo{}, ws_pkg.NewHub())
+	h := NewScreenHandler(&repository.DisplayScreenRepo{}, ws_pkg.NewHub(), nil)
 	r := gin.New()
 	r.POST("/screens", h.Create)
 	r.PUT("/screens/:slug", h.Rename)

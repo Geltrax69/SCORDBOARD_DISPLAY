@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -35,11 +36,14 @@ func TestBroadcastToScreensReachesOnlyThatScreen(t *testing.T) {
 	waitFor(t, func() bool { return h.ConnectedCount() == 3 })
 
 	h.BroadcastToScreens([]string{"court-a"}, models.WSMessage{Type: models.EventDisplayLayout})
+	// A later global message proves the hub has finished with the screen one.
+	h.BroadcastGlobal(models.WSMessage{Type: models.EventAnnouncement})
+	waitFor(t, func() bool { return len(admin.send) == 1 })
 
-	if len(courtA.send) != 1 {
-		t.Fatalf("court-a should receive the layout, got %d messages", len(courtA.send))
+	if len(courtA.send) != 2 {
+		t.Fatalf("court-a should receive layout + announcement, got %d messages", len(courtA.send))
 	}
-	if len(courtB.send) != 0 || len(admin.send) != 0 {
+	if len(courtB.send) != 1 || len(admin.send) != 1 {
 		t.Fatalf("other clients must not receive it: court-b=%d admin=%d", len(courtB.send), len(admin.send))
 	}
 }
@@ -52,8 +56,10 @@ func TestBroadcastToScreensSendsOncePerClient(t *testing.T) {
 	waitFor(t, func() bool { return h.ConnectedCount() == 1 })
 
 	h.BroadcastToScreens([]string{"court-a", "court-a"}, models.WSMessage{Type: models.EventAnnouncement})
-	if len(tv.send) != 1 {
-		t.Fatalf("expected one message, got %d", len(tv.send))
+	h.BroadcastGlobal(models.WSMessage{Type: models.EventDisplayStyle})
+	waitFor(t, func() bool { return len(tv.send) >= 2 })
+	if len(tv.send) != 2 {
+		t.Fatalf("expected the screen message once plus the global one, got %d", len(tv.send))
 	}
 }
 
@@ -70,5 +76,25 @@ func TestScreenOnlineCountsDisplaysPerScreen(t *testing.T) {
 	got := h.ScreenOnline()
 	if got["main"] != 2 || got["lobby"] != 1 || len(got) != 2 {
 		t.Fatalf("unexpected online counts: %v", got)
+	}
+}
+
+// A match ending must reach a TV before court-follow switches it to the next match.
+func TestScreenBroadcastKeepsOrderWithMatchEvents(t *testing.T) {
+	h := NewHub()
+	go h.Run()
+
+	tv := registerTestClient(t, h, "global", ScreenRoom("court-a"))
+	waitFor(t, func() bool { return h.ConnectedCount() == 1 })
+
+	h.BroadcastToMatch("match-1", models.WSMessage{Type: models.EventMatchEnd})
+	h.BroadcastToScreens([]string{"court-a"}, models.WSMessage{Type: models.EventDisplayLayout})
+	waitFor(t, func() bool { return len(tv.send) == 2 })
+
+	var first, second models.WSMessage
+	json.Unmarshal(<-tv.send, &first)
+	json.Unmarshal(<-tv.send, &second)
+	if first.Type != models.EventMatchEnd || second.Type != models.EventDisplayLayout {
+		t.Fatalf("wrong order: %s then %s", first.Type, second.Type)
 	}
 }

@@ -14,6 +14,23 @@ type MatchService struct {
 	eventRepo *repository.EventRepo
 	userRepo  *repository.UserRepo
 	hub       *ws.Hub
+
+	// Told about every match change on a court so court-following screens
+	// can move to the next match. Optional.
+	courtFollower interface{ CourtChanged(courtID string) }
+}
+
+// SetCourtFollower registers who is told when a court's matches change.
+func (s *MatchService) SetCourtFollower(f interface{ CourtChanged(courtID string) }) {
+	s.courtFollower = f
+}
+
+// NotifyCourt tells court-following screens that a match on the court was
+// created, changed status, or was deleted.
+func (s *MatchService) NotifyCourt(courtID string) {
+	if s.courtFollower != nil {
+		s.courtFollower.CourtChanged(courtID)
+	}
 }
 
 func NewMatchService(
@@ -129,6 +146,8 @@ func (s *MatchService) broadcastMatchUpdate(matchID string, ev *models.Event) {
 		MatchID: matchID,
 		Payload: payloadBytes,
 	})
+	// After the match event, so a TV sees the match end before switching.
+	s.NotifyCourt(match.CourtID)
 }
 
 func (s *MatchService) GetMatchWithState(matchID string) (*models.Match, *models.MatchState, error) {
@@ -202,6 +221,7 @@ func (s *MatchService) BroadcastStatusChange(matchID, status string) {
 		MatchID: matchID,
 		Payload: p,
 	})
+	s.NotifyCourt(match.CourtID)
 }
 
 func (s *MatchService) BroadcastAnnouncement(msg string, duration int) {

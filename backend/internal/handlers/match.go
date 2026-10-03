@@ -54,6 +54,7 @@ func (h *MatchHandler) Create(c *gin.Context) {
 		_ = h.playerRepo.SetPlayers(m.ID, players)
 	}
 
+	h.matchService.NotifyCourt(m.CourtID)
 	c.JSON(http.StatusCreated, m)
 }
 
@@ -130,6 +131,7 @@ func (h *MatchHandler) Delete(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "delete failed"})
 		return
 	}
+	h.matchService.NotifyCourt(match.CourtID)
 	c.JSON(http.StatusOK, gin.H{"message": "match deleted"})
 }
 

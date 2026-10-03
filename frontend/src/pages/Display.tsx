@@ -168,6 +168,9 @@ export default function Display() {
   // ── WS message handler ────────────────────────────────────────────────────
   const handleWS = useCallback((msg: WSMessage) => {
     const { type, match_id, payload } = msg
+    // Every display hears every court. Moments (celebration, countdown,
+    // timeout, subs…) only play for matches this screen is showing.
+    const shown = !!match_id && matchIds.includes(match_id)
 
     switch (type) {
       case 'score_update':
@@ -200,7 +203,9 @@ export default function Display() {
             (curTeam !== prevTeam || curIsMatch !== !!prevSt?.match_point)
           setLiveMatches((prev) => ({ ...prev, [match_id]: { match: payload.match!, state: payload.state! } }))
           const roundJustEnded = payload.state.awaiting_round && !prevSt?.awaiting_round
-          if (type === 'match_end' || justCompleted) {
+          if (!shown) {
+            // Another court's match — keep its state fresh, play nothing here.
+          } else if (type === 'match_end' || justCompleted) {
             setCelebrating({ match: payload.match, state: payload.state })
           } else if (roundJustEnded) {
             // A completed round outranks the set that ended it.
@@ -214,11 +219,11 @@ export default function Display() {
             else setOverlay({ type: 'setpoint', match: payload.match, team: curTeam as 'A' | 'B', isMatch: curIsMatch })
           }
         }
-        if (type === 'timeout_end') setOverlay({ type: 'none' })
+        if (type === 'timeout_end' && shown) setOverlay({ type: 'none' })
         break
       }
       case 'match_start': {
-        if (match_id && payload.match && payload.state) {
+        if (shown && payload.match && payload.state) {
           const m = payload.match!
           const pl = players[m.id] ?? []
           // A restarted match should re-enter the grid (undo any earlier dismiss).
@@ -228,12 +233,16 @@ export default function Display() {
           })
           // Show 5-second countdown BEFORE switching to live view
           setOverlay({ type: 'countdown', match: m, players: pl, pendingState: payload.state! })
+        } else if (match_id && payload.match && payload.state) {
+          // Not on this screen: no countdown, but keep its state current.
+          setLiveMatches((prev) => ({ ...prev, [match_id]: { match: payload.match!, state: payload.state! } }))
         }
         break
       }
       case 'round_start': {
         if (match_id && payload.match && payload.state) {
           setLiveMatches((prev) => ({ ...prev, [match_id]: { match: payload.match!, state: payload.state! } }))
+          if (!shown) break
           if (multiRef.current) flashCell(match_id, { kind: 'roundstart', state: payload.state }, 5000)
           else setOverlay({ type: 'roundstart', match: payload.match, state: payload.state })
         }
@@ -243,14 +252,14 @@ export default function Display() {
         if (match_id && payload.match && payload.state?.current_timeout) {
           setLiveMatches((prev) => ({ ...prev, [match_id]: { match: payload.match!, state: payload.state! } }))
           // Multi-match: the card itself shows TIME OUT (status). Single: full-screen.
-          if (!multiRef.current) {
+          if (shown && !multiRef.current) {
             setOverlay({ type: 'timeout', payload: payload.state!.current_timeout!, match: payload.match! })
           }
         }
         break
       }
       case 'substitution': {
-        if (match_id && payload.event && payload.match) {
+        if (shown && payload.event && payload.match) {
           const sub = payload.event.payload as unknown as SubstitutionPayload
           if (multiRef.current) flashCell(match_id, { kind: 'sub', payload: sub }, 4500)
           else setOverlay({ type: 'substitution', payload: sub, match: payload.match! })
@@ -276,7 +285,7 @@ export default function Display() {
         break
       }
       case 'display_layout_change': {
-        const p = payload as unknown as { mode: 1|2|3|4|5; match_ids: string[]; show_player_animation?: boolean; screen?: string }
+        const p = payload as unknown as { mode: 1|2|3|4|5; match_ids: string[]; show_player_animation?: boolean; screen?: string; auto?: boolean }
         // Layouts are pushed per screen — never apply another TV's layout.
         if (p.screen && p.screen !== screen) break
         if (p.mode) {
@@ -284,7 +293,9 @@ export default function Display() {
           setMatchIds(p.match_ids ?? [])
           setShowPlayerAnim(!!p.show_player_animation)
           setDismissed(new Set()) // fresh selection — clear prior reflow state
-          setCelebrating(null)
+          // A court-follow switch lands right after a match ends: let that
+          // winner takeover finish over the next match instead of cutting it.
+          if (!p.auto) setCelebrating(null)
           // Fetch any matches we don't have yet — the grid reflows via Flip.
           p.match_ids?.forEach(async (id) => {
             if (!liveMatches[id]) {
@@ -304,7 +315,7 @@ export default function Display() {
         break
       }
     }
-  }, [players, liveMatches, screen])
+  }, [players, liveMatches, matchIds, screen])
 
   const handleWSRef = useRef(handleWS)
   useEffect(() => {

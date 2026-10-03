@@ -370,6 +370,8 @@ type DisplayLayoutPayload struct {
 	ShowPlayerAnimation bool     `json:"show_player_animation"`
 	// Screen the layout belongs to; displays ignore layouts for other screens.
 	Screen string `json:"screen,omitempty"`
+	// Auto marks a switch made by court-follow rather than by the admin.
+	Auto bool `json:"auto,omitempty"`
 }
 
 // DisplayScreen is one physical TV, opened once at /display?screen=<slug> and
@@ -380,7 +382,8 @@ type DisplayScreen struct {
 	Mode                int       `json:"mode"`
 	MatchIDs            []string  `json:"match_ids"`
 	ShowPlayerAnimation bool      `json:"show_player_animation"`
-	Online              int       `json:"online"` // connected displays on this screen
+	FollowCourtID       string    `json:"follow_court_id"` // "" = layout picked by hand
+	Online              int       `json:"online"`          // connected displays on this screen
 	UpdatedAt           time.Time `json:"updated_at"`
 }
 

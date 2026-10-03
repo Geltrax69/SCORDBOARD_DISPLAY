@@ -24,6 +24,8 @@ type Hub struct {
 type roomMessage struct {
 	room    string
 	message []byte
+	// roomOnly skips the fan-out to global clients (used for screen rooms).
+	roomOnly bool
 }
 
 func NewHub() *Hub {
@@ -101,7 +103,11 @@ func (h *Hub) Run() {
 					}
 				}
 				// Also send to global clients who are NOT in the room clients map
+				// (screen rooms are room-only: other TVs must not get them).
 				for client := range h.global {
+					if msg.roomOnly {
+						break
+					}
 					if roomClients == nil || !roomClients[client] {
 						select {
 						case client.send <- msg.message:
@@ -162,23 +168,17 @@ func ScreenRoom(slug string) string { return "screen:" + slug }
 
 // BroadcastToScreens sends only to displays on the given screens. Unlike
 // BroadcastToMatch it does not fan out to global clients, so changing one TV
-// never touches the others.
+// never touches the others. It goes through the same queue as match events, so
+// a TV sees a match end before any automatic switch to the next match.
 func (h *Hub) BroadcastToScreens(slugs []string, msg models.WSMessage) {
 	data, _ := json.Marshal(msg)
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	sent := make(map[*Client]bool)
+	seen := make(map[string]bool)
 	for _, slug := range slugs {
-		for client := range h.rooms[ScreenRoom(slug)] {
-			if sent[client] {
-				continue
-			}
-			sent[client] = true
-			select {
-			case client.send <- data:
-			default:
-			}
+		if seen[slug] {
+			continue
 		}
+		seen[slug] = true
+		h.broadcast <- roomMessage{room: ScreenRoom(slug), message: data, roomOnly: true}
 	}
 }
 

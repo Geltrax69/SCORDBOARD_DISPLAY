@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { clsx } from 'clsx'
-import { Monitor, Columns2, Grid2x2, Megaphone, Video, Send, Play, Check, Users } from 'lucide-react'
+import { Monitor, Columns2, Grid2x2, Megaphone, Video, Send, Play, Check, Users, MapPin, ListChecks } from 'lucide-react'
 import { Button } from '@/components/common/Button'
-import { setScreenLayout, listDisplayAssets, showDisplayAsset } from '@/services/api'
+import { setScreenLayout, listDisplayAssets, showDisplayAsset, followCourt } from '@/services/api'
 import { isVideoUrl } from '@/components/admin/DisplayAssetsControl'
 import type { Match, DisplayAsset, DisplayScreen } from '@/types'
 
@@ -10,7 +10,19 @@ interface Props {
   matches: Match[]
   /** The one TV this panel controls. */
   screen: DisplayScreen
+  /** Courts this screen can follow, already labelled for display. */
+  courts?: { id: string; label: string }[]
   onPushed?: (screen: DisplayScreen) => void
+}
+
+const LIVE = ['active', 'timeout', 'paused']
+
+/** What a court-following screen will show: the live match, else the next pending one. */
+export function courtCurrentMatch(matches: Match[], courtId: string): Match | undefined {
+  const onCourt = matches
+    .filter((m) => m.court_id === courtId)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at))
+  return onCourt.find((m) => LIVE.includes(m.status)) ?? onCourt.find((m) => m.status === 'pending')
 }
 
 const MODES = [
@@ -23,7 +35,7 @@ const MODES = [
 
 const MAX_MATCHES: Record<number, number> = { 1: 1, 2: 2, 3: 4, 4: 0, 5: 0 }
 
-export function DisplayControl({ matches, screen, onPushed }: Props) {
+export function DisplayControl({ matches, screen, courts = [], onPushed }: Props) {
   // Only live/upcoming matches are selectable for the display — not finished ones.
   const pickable = matches.filter((m) => m.status !== 'completed' && m.status !== 'cancelled')
   // Start from what this screen is showing now.
@@ -37,6 +49,9 @@ export function DisplayControl({ matches, screen, onPushed }: Props) {
   const [shownId, setShownId]  = useState<string | null>(null)
   // Player intro animation on pending matches — off by default.
   const [showPlayerAnim, setShowPlayerAnim] = useState(screen.show_player_animation)
+  // Pick matches by hand, or follow a court and switch matches automatically.
+  const [source, setSource] = useState<'manual' | 'follow'>(screen.follow_court_id ? 'follow' : 'manual')
+  const [courtId, setCourtId] = useState(screen.follow_court_id)
 
   const maxSel = MAX_MATCHES[mode] ?? 0
   const assetType: 'announcement' | 'sponsor' | null = mode === 4 ? 'announcement' : mode === 5 ? 'sponsor' : null
@@ -74,6 +89,18 @@ export function DisplayControl({ matches, screen, onPushed }: Props) {
     }
   }
 
+  const handleFollow = async (id: string) => {
+    setSending(true)
+    try {
+      const updated = await followCourt(screen.slug, id, showPlayerAnim)
+      onPushed?.({ ...updated, online: screen.online })
+      setPushed(true)
+      setTimeout(() => setPushed(false), 2500)
+    } finally {
+      setSending(false)
+    }
+  }
+
   const onModeChange = (m: 1|2|3|4|5) => {
     setMode(m)
     setSelected([])
@@ -81,6 +108,68 @@ export function DisplayControl({ matches, screen, onPushed }: Props) {
 
   return (
     <div className="space-y-5">
+      {/* Source: pick matches by hand, or follow a court */}
+      <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-dark-925 border border-dark-800" role="tablist">
+        {([
+          { id: 'manual' as const, label: 'Pick matches', icon: ListChecks },
+          { id: 'follow' as const, label: 'Follow a court', icon: MapPin },
+        ]).map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            role="tab"
+            aria-selected={source === id}
+            onClick={() => setSource(id)}
+            className={clsx(
+              'flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all',
+              source === id ? 'bg-brand-500/20 text-brand-100' : 'text-dark-400 hover:text-dark-100',
+            )}
+          >
+            <Icon size={13} /> {label}
+          </button>
+        ))}
+      </div>
+
+      {source === 'follow' && (
+        <div>
+          <p className="text-xs text-dark-500 mb-2 font-medium">
+            Shows the court’s live match, else its next match — and moves on by itself when a match ends.
+          </p>
+          <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+            {courts.length === 0 && (
+              <p className="text-xs text-dark-600 text-center py-4">No courts yet — add one in Setup.</p>
+            )}
+            {courts.map((c) => {
+              const now = courtCurrentMatch(matches, c.id)
+              const isSel = courtId === c.id
+              const isFollowing = screen.follow_court_id === c.id
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => setCourtId(c.id)}
+                  aria-pressed={isSel}
+                  className={clsx(
+                    'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-all',
+                    isSel ? 'border-brand-500 bg-brand-900/20' : 'border-dark-700 bg-dark-800 hover:border-dark-500',
+                  )}
+                >
+                  <MapPin size={15} className={isSel ? 'text-brand-300' : 'text-dark-500'} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-dark-100 truncate">{c.label}</p>
+                    <p className="text-xs text-dark-500 truncate">
+                      {now
+                        ? `${LIVE.includes(now.status) ? 'Live' : 'Next'}: ${now.team_a} vs ${now.team_b}`
+                        : 'No upcoming matches'}
+                    </p>
+                  </div>
+                  {isFollowing && <span className="text-xs font-semibold text-live flex-shrink-0">Following</span>}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {source === 'manual' && (<>
       {/* Mode buttons */}
       <div className="grid grid-cols-5 gap-2">
         {MODES.map(({ mode: m, label, icon: Icon, desc }) => {
@@ -213,8 +302,10 @@ export function DisplayControl({ matches, screen, onPushed }: Props) {
         </div>
       )}
 
+      </>)}
+
       {/* Player intro animation toggle — only for match layouts (1/2/4). */}
-      {!assetType && (
+      {(source === 'follow' || !assetType) && (
         <button
           type="button"
           onClick={() => setShowPlayerAnim((v) => !v)}
@@ -243,8 +334,33 @@ export function DisplayControl({ matches, screen, onPushed }: Props) {
         </button>
       )}
 
+      {source === 'follow' && (
+        <div className="space-y-2">
+          <Button
+            className="w-full"
+            variant={pushed ? 'success' : 'primary'}
+            icon={<MapPin size={14} />}
+            loading={sending}
+            onClick={() => handleFollow(courtId)}
+            disabled={!courtId}
+          >
+            {pushed
+              ? '✓ Following'
+              : `Follow ${courts.find((c) => c.id === courtId)?.label ?? 'court'} on ${screen.name}`}
+          </Button>
+          {screen.follow_court_id && (
+            <button
+              onClick={() => { setCourtId(''); handleFollow('') }}
+              className="w-full text-xs text-dark-500 hover:text-dark-200 py-1"
+            >
+              Stop following (keep showing the current match)
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Push button — only for match layouts (1/2/4). Assets push via Show. */}
-      {!assetType && (
+      {source === 'manual' && !assetType && (
         <Button
           className="w-full"
           variant={pushed ? 'success' : 'primary'}

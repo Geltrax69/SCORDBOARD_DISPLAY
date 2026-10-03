@@ -7,20 +7,23 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 	"github.com/scoreboard/backend/internal/models"
 	"github.com/scoreboard/backend/internal/repository"
+	"github.com/scoreboard/backend/internal/services"
 	ws_pkg "github.com/scoreboard/backend/internal/ws"
 )
 
 // ScreenHandler manages named display screens: each TV opens
 // /display?screen=<slug> once and the admin controls every screen separately.
 type ScreenHandler struct {
-	repo *repository.DisplayScreenRepo
-	hub  *ws_pkg.Hub
+	repo     *repository.DisplayScreenRepo
+	hub      *ws_pkg.Hub
+	follower *services.ScreenFollower
 }
 
-func NewScreenHandler(repo *repository.DisplayScreenRepo, hub *ws_pkg.Hub) *ScreenHandler {
-	return &ScreenHandler{repo: repo, hub: hub}
+func NewScreenHandler(repo *repository.DisplayScreenRepo, hub *ws_pkg.Hub, follower *services.ScreenFollower) *ScreenHandler {
+	return &ScreenHandler{repo: repo, hub: hub, follower: follower}
 }
 
 var slugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
@@ -201,6 +204,45 @@ func (h *ScreenHandler) setLayout(c *gin.Context, slug string) {
 	payload, _ := json.Marshal(layout)
 	h.hub.BroadcastToScreens([]string{slug}, models.WSMessage{Type: models.EventDisplayLayout, Payload: payload})
 
+	c.JSON(http.StatusOK, screen)
+}
+
+// Follow makes a screen follow a court: it shows the court's live match, or
+// the next pending one, and moves on by itself. An empty court_id stops
+// following and leaves the screen on what it shows now.
+func (h *ScreenHandler) Follow(c *gin.Context) {
+	var req struct {
+		CourtID             string `json:"court_id"`
+		ShowPlayerAnimation bool   `json:"show_player_animation"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	req.CourtID = strings.TrimSpace(req.CourtID)
+
+	screen, err := h.repo.SetFollow(c.Param("slug"), req.CourtID, req.ShowPlayerAnimation)
+	if pqErr, ok := err.(*pq.Error); ok && (pqErr.Code == "23503" || pqErr.Code == "22P02") {
+		// foreign_key_violation / invalid_text_representation: no such court
+		c.JSON(http.StatusBadRequest, gin.H{"error": "court not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save follow"})
+		return
+	}
+	if screen == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "screen not found"})
+		return
+	}
+
+	if screen.FollowCourtID != "" {
+		if screen, err = h.follower.Sync(screen); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load the court's match"})
+			return
+		}
+	}
+	screen.Online = h.hub.ScreenOnline()[screen.Slug]
 	c.JSON(http.StatusOK, screen)
 }
 

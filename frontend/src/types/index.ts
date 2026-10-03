@@ -159,6 +159,8 @@ export interface DisplayLayoutPayload {
   show_player_animation?: boolean
   /** Screen the layout belongs to (set by the server on pushes). */
   screen?: string
+  /** True when court-follow switched the match, not the admin. */
+  auto?: boolean
 }
 
 /** One TV, opened once at /display?screen=<slug> and controlled on its own. */
@@ -168,6 +170,8 @@ export interface DisplayScreen {
   mode: 1 | 2 | 3 | 4 | 5
   match_ids: string[]
   show_player_animation: boolean
+  /** Court this screen follows ('' = matches picked by hand). */
+  follow_court_id: string
   /** Displays currently connected to this screen. */
   online: number
   updated_at: string

@@ -18,6 +18,7 @@ A real-time sports scoreboard system with a broadcast-style display screen, admi
 - **Admin Dashboard** — create matches, manage teams & players with logos and photos
 - **Multi-match support** — 1–4 matches on screen simultaneously
 - **Multiple TVs, one admin panel** — add a named screen per TV (Display → Screens), open its link once on that TV, then control each TV separately: its own layout, matches, Identify flash, and targeted sponsors/announcements
+- **Court-follow screens** — set a TV to follow a court and it shows that court's live match (or the next one), moving on by itself when a match ends
 
 ---
 
